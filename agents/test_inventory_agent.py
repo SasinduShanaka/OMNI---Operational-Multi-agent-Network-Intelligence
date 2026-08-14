@@ -6,7 +6,7 @@ results = check_inventory()
 
 
 # Display results
-print("\n===== OMNI INVENTORY AGENT =====\n")
+print("\n==== OMNI INVENTORY AGENT ====\n")
 
 for item in results:
 
