@@ -44,5 +44,5 @@ def process_request(user_request: str):
     return {
         "agent": "Operations Agent",
         "status": "unable_to_route",
-        "message": "I don't know which specialized agent should handle thi request yet."
+        "message": "I don't know which specialized agent should handle this request yet."
     }
