@@ -13,11 +13,16 @@ app = FastAPI(
 
 
 # --------------------------------------------------
-# Request model
+# Request models
 # --------------------------------------------------
 
 class UserRequest(BaseModel):
     message: str
+
+
+class InventoryRequest(BaseModel):
+    material_code: str
+    required_quantity: float
 
 
 # --------------------------------------------------
@@ -55,6 +60,67 @@ def inventory_status():
         "total_items_checked": len(results),
         "low_stock_count": len(low_stock_items),
         "low_stock_items": low_stock_items
+    }
+
+
+# --------------------------------------------------
+# Inventory Agent - Requirement Check
+# --------------------------------------------------
+
+@app.post("/agents/inventory/check")
+def check_inventory_requirement(request: InventoryRequest):
+
+    results = check_inventory()
+
+    material = next(
+        (
+            item
+            for item in results
+            if item["material_code"] == request.material_code
+        ),
+        None
+    )
+
+    if material is None:
+
+        return {
+            "sender": "inventory_agent",
+            "receiver": "operations_agent",
+            "message_type": "INVENTORY_RESULT",
+            "status": "NOT_FOUND",
+            "material_code": request.material_code
+        }
+
+    current_stock = material["current_stock"]
+
+    if current_stock >= request.required_quantity:
+
+        return {
+            "sender": "inventory_agent",
+            "receiver": "operations_agent",
+            "message_type": "INVENTORY_RESULT",
+            "status": "SUFFICIENT",
+            "material_code": material["material_code"],
+            "material_name": material["material_name"],
+            "available_quantity": current_stock,
+            "required_quantity": request.required_quantity,
+            "shortage": 0,
+            "unit": material["unit"]
+        }
+
+    shortage = request.required_quantity - current_stock
+
+    return {
+        "sender": "inventory_agent",
+        "receiver": "operations_agent",
+        "message_type": "INVENTORY_RESULT",
+        "status": "SHORTAGE",
+        "material_code": material["material_code"],
+        "material_name": material["material_name"],
+        "available_quantity": current_stock,
+        "required_quantity": request.required_quantity,
+        "shortage": shortage,
+        "unit": material["unit"]
     }
 
 
