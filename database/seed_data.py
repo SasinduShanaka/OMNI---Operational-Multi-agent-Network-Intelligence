@@ -29,7 +29,7 @@ client = MongoClient(MONGO_URI)
 
 db = client["OMNI_DB"]
 
-print("Connected to MongoDB successfully!")
+print("Connected to MongoDB successfull!")
 
 
 # --------------------------------------------------
