@@ -1,41 +1,101 @@
-from fastapi import FastAPI
+import os
+import sys
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
-from agents.inventory_agent import check_inventory
+
+# ============================================================
+# PROJECT PATH
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+# Make project root available so we can import agents/
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+
+ENV_PATH = os.path.join(
+    BASE_DIR,
+    "backend",
+    ".env"
+)
+
+load_dotenv(ENV_PATH)
+
+
+# ============================================================
+# AGENT IMPORTS
+# ============================================================
+
 from agents.operations_agent import process_request
 
+from agents.inventory_agent import (
+    check_inventory,
+    get_low_stock,
+    get_material,
+    get_total_stock,
+)
+
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
 
 app = FastAPI(
-    title="OMNI API",
-    description="Operational Multi-agent Network Intelligence",
-    version="1.0.0"
+    title="OMNI Operations API",
+    description="Operational Multi-Agent Network Intelligence API",
+    version="1.0.0",
 )
+
+
+# ============================================================
+# CORS
+# ============================================================
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
 
 
-# --------------------------------------------------
-# Request models
-# --------------------------------------------------
+# ============================================================
+# REQUEST MODELS
+# ============================================================
 
-class UserRequest(BaseModel):
+class AskRequest(BaseModel):
     message: str
 
 
-class InventoryRequest(BaseModel):
-    material_code: str
-    required_quantity: float
+class MaterialRequest(BaseModel):
+    material_name: str | None = None
+    material_code: str | None = None
 
 
-# --------------------------------------------------
-# Root endpoint
-# --------------------------------------------------
+# ============================================================
+# ROOT
+# ============================================================
 
 @app.get("/")
 def root():
@@ -46,106 +106,165 @@ def root():
         "status": "online"
     }
 
+
+# ============================================================
+# HEALTH
+# ============================================================
+
 @app.get("/health")
 def health():
 
     return {
-        "status": "healthy",
         "system": "OMNI",
-        "service": "backend"
-    }
-# --------------------------------------------------
-# Inventory Agent endpoint
-# --------------------------------------------------
-
-@app.get("/inventory/status")
-def inventory_status():
-
-    results = check_inventory()
-
-    low_stock_items = [
-        item
-        for item in results
-        if item["status"] == "LOW_STOCK"
-    ]
-
-    return {
-        "agent": "Inventory Agent",
-        "status": "success",
-        "total_items_checked": len(results),
-        "low_stock_count": len(low_stock_items),
-        "low_stock_items": low_stock_items
+        "message": "System healthy",
+        "status": "online"
     }
 
 
-# --------------------------------------------------
-# Inventory Agent - Requirement Check
-# --------------------------------------------------
-
-@app.post("/agents/inventory/check")
-def check_inventory_requirement(request: InventoryRequest):
-
-    results = check_inventory()
-
-    material = next(
-        (
-            item
-            for item in results
-            if item["material_code"] == request.material_code
-        ),
-        None
-    )
-
-    if material is None:
-
-        return {
-            "sender": "inventory_agent",
-            "receiver": "operations_agent",
-            "message_type": "INVENTORY_RESULT",
-            "status": "NOT_FOUND",
-            "material_code": request.material_code
-        }
-
-    current_stock = material["current_stock"]
-
-    if current_stock >= request.required_quantity:
-
-        return {
-            "sender": "inventory_agent",
-            "receiver": "operations_agent",
-            "message_type": "INVENTORY_RESULT",
-            "status": "SUFFICIENT",
-            "material_code": material["material_code"],
-            "material_name": material["material_name"],
-            "available_quantity": current_stock,
-            "required_quantity": request.required_quantity,
-            "shortage": 0,
-            "unit": material["unit"]
-        }
-
-    shortage = request.required_quantity - current_stock
-
-    return {
-        "sender": "inventory_agent",
-        "receiver": "operations_agent",
-        "message_type": "INVENTORY_RESULT",
-        "status": "SHORTAGE",
-        "material_code": material["material_code"],
-        "material_name": material["material_name"],
-        "available_quantity": current_stock,
-        "required_quantity": request.required_quantity,
-        "shortage": shortage,
-        "unit": material["unit"]
-    }
-
-
-# --------------------------------------------------
-# Operations Agent endpoint
-# --------------------------------------------------
+# ============================================================
+# OPERATIONS AGENT
+# ============================================================
 
 @app.post("/ask")
-def ask_operations_agent(request: UserRequest):
+def ask_agent(request: AskRequest):
 
-    result = process_request(request.message)
+    if not request.message.strip():
 
-    return result
+        raise HTTPException(
+            status_code=400,
+            detail="Message cannot be empty."
+        )
+
+    try:
+
+        result = process_request(
+            request.message
+        )
+
+        return result
+
+    except Exception as error:
+
+        print(
+            f"Operations Agent error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Operations Agent failed to process the request."
+        )
+
+
+# ============================================================
+# INVENTORY — ALL ITEMS
+# ============================================================
+
+@app.get("/inventory")
+def inventory():
+
+    try:
+
+        return check_inventory()
+
+    except Exception as error:
+
+        print(
+            f"Inventory error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve inventory."
+        )
+
+
+# ============================================================
+# INVENTORY — LOW STOCK
+# ============================================================
+
+@app.get("/inventory/low-stock")
+def low_stock():
+
+    try:
+
+        return get_low_stock()
+
+    except Exception as error:
+
+        print(
+            f"Low stock error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve low-stock materials."
+        )
+
+
+# ============================================================
+# INVENTORY — SPECIFIC MATERIAL
+# ============================================================
+
+@app.post("/inventory/material")
+def material(request: MaterialRequest):
+
+    if not request.material_name and not request.material_code:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Provide material_name or material_code."
+        )
+
+    try:
+
+        result = get_material(
+            material_name=request.material_name,
+            material_code=request.material_code
+        )
+
+        if result is None:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Material not found."
+            )
+
+        return result
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Material lookup error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve material."
+        )
+
+
+# ============================================================
+# INVENTORY — TOTAL STOCK
+# ============================================================
+
+@app.get("/inventory/total")
+def total_stock():
+
+    try:
+
+        return get_total_stock()
+
+    except Exception as error:
+
+        print(
+            f"Total stock error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to calculate total stock."
+        )

@@ -1,81 +1,869 @@
-import requests
+import os
+import json
+import re
+
+from dotenv import load_dotenv
+from groq import Groq
+
+from agents.inventory_agent import (
+    get_all_inventory,
+    get_low_stock,
+    get_out_of_stock,
+    get_healthy_stock,
+    get_material,
+    check_inventory_requirement,
+    get_reorder_requirements,
+    get_total_stock,
+    get_inventory_summary,
+    get_largest_shortages,
+    get_inventory_kpis,
+)
 
 
-# --------------------------------------------------
-# Inventory Agent API
-# --------------------------------------------------
+# ============================================================
+# ENVIRONMENT
+# ============================================================
 
-INVENTORY_AGENT_URL = "http://127.0.0.1:8000"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
+
+load_dotenv(ENV_PATH)
 
 
-# --------------------------------------------------
-# Operations Agent
-# --------------------------------------------------
+# ============================================================
+# GROQ CLIENT
+# ============================================================
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
+
+MODEL_NAME = "openai/gpt-oss-20b"
+
+
+# ============================================================
+# 1. UNDERSTAND USER REQUEST
+# ============================================================
+
+def understand_request(user_request: str):
+
+    prompt = f"""
+You are the Operations Agent of OMNI.
+
+Your responsibility is to understand natural-language
+questions and determine which inventory operation is required.
+
+The Inventory Agent can perform the following operations:
+
+1. inventory_list
+
+Use when the user asks for:
+- all materials
+- full stock list
+- complete inventory
+- materials we have
+- everything in inventory
+- show inventory
+- list stock
+
+2. low_stock
+
+Use when the user asks:
+- what is low in stock?
+- which materials are below reorder level?
+- what needs attention?
+- which materials need replenishment?
+- what is running low?
+
+3. out_of_stock
+
+Use when the user asks:
+- what are we out of?
+- which materials have zero stock?
+- are we out of anything?
+- unavailable materials
+
+4. healthy_stock
+
+Use when the user asks:
+- which materials are healthy?
+- which materials have enough stock?
+- which stock is okay?
+- what materials are above reorder level?
+
+5. material_status
+
+Use when the user asks about a specific material.
+
+Examples:
+- How much Black Cotton Fabric do we have?
+- What is the stock of FAB-001?
+- Tell me about Black Cotton Fabric.
+- Is Black Cotton Fabric low?
+
+6. inventory_requirement
+
+Use when the user asks whether a specific quantity
+can be satisfied.
+
+Examples:
+- Do we have enough Black Cotton Fabric for 4000 meters?
+- Can we fulfill 5000 meters?
+- Is there enough stock for 4000 meters?
+- How much more material do we need?
+
+7. reorder_requirements
+
+Use when the user asks:
+- what should we reorder?
+- what do we need to buy?
+- what needs replenishment?
+- how much should we reorder?
+
+8. total_stock
+
+Use when the user asks:
+- what is our total inventory?
+- how much stock do we have in total?
+- what is the total stock quantity?
+
+9. inventory_summary
+
+Use when the user asks:
+- give me an inventory health check
+- how is our inventory?
+- is everything okay?
+- anything I should worry about?
+- give me an inventory overview
+
+10. largest_shortages
+
+Use when the user asks:
+- which material has the biggest shortage?
+- what are our biggest shortages?
+- which shortages are most serious?
+
+11. inventory_kpis
+
+Use when the user asks:
+- give me inventory KPIs
+- inventory performance
+- inventory percentages
+- inventory statistics
+
+12. unknown
+
+Use only when the request is clearly unrelated
+to inventory or operations.
+
+IMPORTANT:
+
+Understand different ways humans ask the same question.
+
+For example:
+
+"Can you give me the full stock list?"
+"Can you tell me the materials we have?"
+"Show me our inventory."
+"What materials are currently available?"
+
+All of these should become:
+
+inventory_list
+
+Extract the following information when available:
+
+- material_name
+- material_code
+- required_quantity
+
+If a value is not present, return null.
+
+Return ONLY valid JSON.
+
+Example:
+
+{{
+    "intent": "inventory_list",
+    "material_name": null,
+    "material_code": null,
+    "required_quantity": null
+}}
+
+User request:
+
+"{user_request}"
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a precise intent classification and entity extraction system."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0
+    )
+
+    content = response.choices[0].message.content.strip()
+
+    # --------------------------------------------------------
+    # Remove accidental markdown code fences
+    # --------------------------------------------------------
+
+    content = content.replace("```json", "")
+    content = content.replace("```", "")
+    content = content.strip()
+
+    try:
+
+        result = json.loads(content)
+
+        return {
+            "intent": result.get("intent", "unknown"),
+            "material_name": result.get("material_name"),
+            "material_code": result.get("material_code"),
+            "required_quantity": result.get("required_quantity")
+        }
+
+    except json.JSONDecodeError:
+
+        return {
+            "intent": "unknown",
+            "material_name": None,
+            "material_code": None,
+            "required_quantity": None
+        }
+
+
+# ============================================================
+# 2. CLEAN LLM RESPONSE
+# ============================================================
+
+def clean_response(text):
+    """
+    Remove markdown formatting that does not look good
+    in the frontend chat interface.
+    """
+
+    if not text:
+        return ""
+
+    text = text.replace("**", "")
+    text = text.replace("__", "")
+    text = text.replace("```", "")
+
+    # Remove unnecessary leading/trailing whitespace
+    text = text.strip()
+
+    return text
+
+
+# ============================================================
+# 3. GENERATE HUMAN-FRIENDLY RESPONSE
+# ============================================================
+
+def generate_final_response(user_request, inventory_data):
+
+    prompt = f"""
+You are the Operations Agent of OMNI.
+
+The user asked:
+
+"{user_request}"
+
+The Inventory Agent retrieved this REAL data
+from MongoDB:
+
+{json.dumps(inventory_data, indent=2)}
+
+Your job is to explain the result naturally to a human.
+
+IMPORTANT RULES:
+
+1. Use ONLY the supplied inventory data.
+2. Never invent numbers.
+3. Never invent materials.
+4. Do not use Markdown.
+5. Do not use ** symbols.
+6. Do not use bullet points unless they genuinely improve readability.
+7. Use simple, natural business language.
+8. Be concise but informative.
+9. If there are multiple materials, organize the answer clearly.
+10. Mention important numbers such as current stock,
+    reorder level and shortage when relevant.
+11. If there is a problem, clearly explain what needs attention.
+12. If everything is fine, clearly say that.
+13. Do not mention that you are an AI.
+14. Do not mention Groq, MongoDB or internal implementation.
+
+Examples of the desired style:
+
+User:
+"How much Black Cotton Fabric do we have?"
+
+Good answer:
+"We currently have 3,200 meters of Black Cotton Fabric.
+The reorder level is 3,500 meters, so we're 300 meters below
+the recommended level."
+
+User:
+"Which materials are low in stock?"
+
+Good answer:
+"Two materials are currently below their reorder levels:
+Grey Fleece Fabric has 1,800 meters, which is 200 meters below
+its reorder level, and Black Cotton Fabric has 3,200 meters,
+which is 300 meters below its reorder level."
+
+User:
+"Do we have enough Black Cotton Fabric for 4,000 meters?"
+
+Good answer:
+"No. We currently have 3,200 meters, but 4,000 meters are
+required. That leaves a shortage of 800 meters."
+
+Return only the final natural-language answer.
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "system",
+                "content": "You generate clear, professional and human-friendly operational responses."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.2
+    )
+
+    return clean_response(
+        response.choices[0].message.content
+    )
+
+
+# ============================================================
+# 4. PROCESS INVENTORY REQUEST
+# ============================================================
 
 def process_request(user_request: str):
 
-    request = user_request.lower()
+    # --------------------------------------------------------
+    # Understand the user's request
+    # --------------------------------------------------------
 
-    # ----------------------------------------
-    # Inventory-related requests
-    # ----------------------------------------
+    decision = understand_request(user_request)
 
-    inventory_keywords = [
-        "inventory",
-        "stock",
-        "material",
-        "materials",
-        "fabric",
-        "shortage"
-    ]
+    intent = decision.get("intent")
 
-    if any(keyword in request for keyword in inventory_keywords):
+    material_name = decision.get("material_name")
+    material_code = decision.get("material_code")
+    required_quantity = decision.get("required_quantity")
+
+
+    # ========================================================
+    # INVENTORY LIST
+    # ========================================================
+
+    if intent == "inventory_list":
+
+        inventory_data = get_all_inventory()
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Inventory Overview",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # LOW STOCK
+    # ========================================================
+
+    if intent == "low_stock":
+
+        inventory_data = get_low_stock()
+
+        if not inventory_data:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Low Stock Analysis",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "success",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": "Good news — there are currently no materials below their reorder levels.",
+                "results": []
+            }
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Low Stock Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # OUT OF STOCK
+    # ========================================================
+
+    if intent == "out_of_stock":
+
+        inventory_data = get_out_of_stock()
+
+        if not inventory_data:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Out of Stock Analysis",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "success",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": "There are currently no materials completely out of stock.",
+                "results": []
+            }
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Out of Stock Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # HEALTHY STOCK
+    # ========================================================
+
+    if intent == "healthy_stock":
+
+        inventory_data = get_healthy_stock()
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Healthy Inventory Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # SPECIFIC MATERIAL
+    # ========================================================
+
+    if intent == "material_status":
+
+        inventory_data = get_material(
+            material_name=material_name,
+            material_code=material_code
+        )
+
+        if inventory_data is None:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Material Status",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "not_found",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "I couldn't find that material in our inventory. "
+                    "Please check the material name or code and try again."
+                )
+            }
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Material Status",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "result": inventory_data
+        }
+
+
+    # ========================================================
+    # INVENTORY REQUIREMENT
+    # ========================================================
+
+    if intent == "inventory_requirement":
+
+        if required_quantity is None:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Inventory Requirement Analysis",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "missing_quantity",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "Sure — I can check that. "
+                    "How much material do you need?"
+                )
+            }
 
         try:
+            required_quantity = float(required_quantity)
 
-            # Operations Agent communicates
-            # with Inventory Agent through HTTP
-            response = requests.get(
-                f"{INVENTORY_AGENT_URL}/inventory/status",
-                timeout=5
-            )
-
-            response.raise_for_status()
-
-            inventory_data = response.json()
-
-            low_stock_items = inventory_data.get(
-                "low_stock_items",
-                []
-            )
+        except (ValueError, TypeError):
 
             return {
                 "agent": "Operations Agent",
-                "task": "Inventory Analysis",
+                "task": "Inventory Requirement Analysis",
                 "delegated_to": "Inventory Agent",
-                "communication": "HTTP REST",
+                "llm_used": True,
+                "intent": intent,
+                "status": "invalid_quantity",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "I couldn't understand the required quantity. "
+                    "Please provide the amount you need."
+                )
+            }
+
+        inventory_data = check_inventory_requirement(
+            material_name=material_name,
+            material_code=material_code,
+            required_quantity=required_quantity
+        )
+
+        if inventory_data.get("status") == "NOT_FOUND":
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Inventory Requirement Analysis",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "not_found",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "I couldn't find that material in our inventory."
+                ),
+                "result": inventory_data
+            }
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Inventory Requirement Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "result": inventory_data
+        }
+
+
+    # ========================================================
+    # REORDER REQUIREMENTS
+    # ========================================================
+
+    if intent == "reorder_requirements":
+
+        inventory_data = get_reorder_requirements()
+
+        if not inventory_data:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Reorder Analysis",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
                 "status": "success",
-                "low_stock_count": len(low_stock_items),
-                "results": low_stock_items
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "Everything looks good. "
+                    "There are currently no materials that need replenishment."
+                ),
+                "results": []
             }
 
-        except requests.exceptions.RequestException as error:
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Reorder Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # TOTAL STOCK
+    # ========================================================
+
+    if intent == "total_stock":
+
+        inventory_data = get_total_stock()
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Total Inventory Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "result": inventory_data
+        }
+
+
+    # ========================================================
+    # INVENTORY SUMMARY
+    # ========================================================
+
+    if intent == "inventory_summary":
+
+        inventory_data = get_inventory_summary()
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Inventory Health Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "result": inventory_data
+        }
+
+
+    # ========================================================
+    # LARGEST SHORTAGES
+    # ========================================================
+
+    if intent == "largest_shortages":
+
+        inventory_data = get_largest_shortages()
+
+        if not inventory_data:
 
             return {
                 "agent": "Operations Agent",
-                "task": "Inventory Analysis",
+                "task": "Shortage Analysis",
                 "delegated_to": "Inventory Agent",
-                "status": "error",
-                "message": "Unable to communicate with Inventory Agent.",
-                "error": str(error)
+                "llm_used": True,
+                "intent": intent,
+                "status": "success",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": (
+                    "There are currently no material shortages."
+                ),
+                "results": []
             }
 
-    # ----------------------------------------
-    # Unknown request
-    # ----------------------------------------
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Shortage Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "results": inventory_data
+        }
+
+
+    # ========================================================
+    # INVENTORY KPIs
+    # ========================================================
+
+    if intent == "inventory_kpis":
+
+        inventory_data = get_inventory_kpis()
+
+        final_answer = generate_final_response(
+            user_request,
+            inventory_data
+        )
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Inventory KPI Analysis",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": final_answer,
+            "result": inventory_data
+        }
+
+
+    # ========================================================
+    # UNKNOWN
+    # ========================================================
 
     return {
         "agent": "Operations Agent",
+        "llm_used": True,
+        "intent": "unknown",
         "status": "unable_to_route",
-        "message": "I don't know which specialized agent should handle this request yet."
+        "workflow": [
+            "Operations Agent"
+        ],
+        "answer": (
+            "I can help with inventory and operational questions. "
+            "For example, you can ask me about current stock, "
+            "low-stock materials, shortages, reorder requirements, "
+            "or whether we have enough material for a specific order."
+        )
     }
