@@ -1,9 +1,24 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
 function OperationsAgent({ chatState, setChatState }) {
   const { draft, messages, isAsking, error } = chatState
+  const scrollRef = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    })
+  }, [messages, isAsking, error])
+
+  useEffect(() => {
+    if (!isAsking) {
+      inputRef.current?.focus()
+    }
+  }, [messages.length, isAsking])
 
   function updateChatState(patch) {
     setChatState((previous) => ({
@@ -19,9 +34,10 @@ function OperationsAgent({ chatState, setChatState }) {
 
     const userMessage = draft.trim()
 
-    updateChatState({
+    setChatState((previous) => ({
+      ...previous,
       messages: [
-        ...messages,
+        ...previous.messages,
         {
           type: 'user',
           text: userMessage,
@@ -30,6 +46,10 @@ function OperationsAgent({ chatState, setChatState }) {
       draft: '',
       isAsking: true,
       error: '',
+    }))
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
     })
 
     try {
@@ -49,28 +69,26 @@ function OperationsAgent({ chatState, setChatState }) {
 
       const data = await response.json()
 
-      updateChatState({
+      setChatState((previous) => ({
+        ...previous,
         messages: [
-          ...messages,
-          {
-            type: 'user',
-            text: userMessage,
-          },
+          ...previous.messages,
           {
             type: 'agent',
             data,
           },
         ],
         isAsking: false,
-      })
+      }))
     } catch (error) {
       console.error(error)
 
-      updateChatState({
+      setChatState((previous) => ({
+        ...previous,
         error:
           'I could not connect to the Operations Agent. Please make sure the backend is running.',
         isAsking: false,
-      })
+      }))
     }
   }
 
@@ -186,6 +204,8 @@ function OperationsAgent({ chatState, setChatState }) {
             </div>
           )}
 
+          <div ref={scrollRef} />
+
         </div>
 
 
@@ -202,7 +222,7 @@ function OperationsAgent({ chatState, setChatState }) {
               {suggestedQuestions.map((question) => (
                 <button
                   key={question}
-                  onClick={() => updateChatState({ draft: question })}
+                  onClick={() => setChatState((previous) => ({ ...previous, draft: question }))}
                   className="px-3 py-2 rounded-lg border border-[#eadcc0] bg-[#fffaf2] text-xs text-[#5e4a2e] hover:border-[#d9a441] hover:bg-[#fff3d6] transition"
                 >
                   {question}
@@ -221,6 +241,7 @@ function OperationsAgent({ chatState, setChatState }) {
           <div className="flex gap-3">
 
             <input
+              ref={inputRef}
               type="text"
               value={draft}
               onChange={(event) => updateChatState({ draft: event.target.value })}
