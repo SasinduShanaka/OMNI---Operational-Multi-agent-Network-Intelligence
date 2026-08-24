@@ -1,994 +1,1102 @@
-import { useState } from 'react'
-
-
-// ============================================================
-// API CONFIGURATION
-// ============================================================
+import React, { useState } from 'react'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
+function OperationsAgent({ chatState, setChatState }) {
+  const { draft, messages, isAsking, error } = chatState
 
-// ============================================================
-// OPERATIONS AGENT COMPONENT
-// ============================================================
+  function updateChatState(patch) {
+    setChatState((previous) => ({
+      ...previous,
+      ...patch,
+    }))
+  }
 
-function OperationsAgent() {
-
-  // ----------------------------------------------------------
-  // User message
-  // ----------------------------------------------------------
-
-  const [message, setMessage] = useState('')
-
-
-  // ----------------------------------------------------------
-  // Backend response
-  // ----------------------------------------------------------
-
-  const [agentResponse, setAgentResponse] = useState(null)
-
-
-  // ----------------------------------------------------------
-  // Loading state
-  // ----------------------------------------------------------
-
-  const [isAsking, setIsAsking] = useState(false)
-
-
-  // ----------------------------------------------------------
-  // Error
-  // ----------------------------------------------------------
-
-  const [error, setError] = useState('')
-
-
-  // ==========================================================
-  // ASK OPERATIONS AGENT
-  // ==========================================================
-
-  async function handleAskAgent() {
-
-    // Do nothing if input is empty
-    if (!message.trim()) {
+  async function handleSend() {
+    if (!draft.trim() || isAsking) {
       return
     }
 
-    setIsAsking(true)
-    setError('')
-    setAgentResponse(null)
+    const userMessage = draft.trim()
+
+    updateChatState({
+      messages: [
+        ...messages,
+        {
+          type: 'user',
+          text: userMessage,
+        },
+      ],
+      draft: '',
+      isAsking: true,
+      error: '',
+    })
 
     try {
-
-      // ------------------------------------------------------
-      // Send request to FastAPI
-      // ------------------------------------------------------
-
-      const response = await fetch(
-        `${API_BASE_URL}/ask`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type': 'application/json',
-          },
-
-          body: JSON.stringify({
-            message: message.trim(),
-          }),
-        }
-      )
-
-
-      // ------------------------------------------------------
-      // Check HTTP response
-      // ------------------------------------------------------
+      const response = await fetch(`${API_BASE_URL}/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+        }),
+      })
 
       if (!response.ok) {
-
-        throw new Error(
-          `Request failed: ${response.status}`
-        )
-
+        throw new Error(`Request failed: ${response.status}`)
       }
-
-
-      // ------------------------------------------------------
-      // Convert response to JSON
-      // ------------------------------------------------------
 
       const data = await response.json()
 
-
-      // ------------------------------------------------------
-      // Store response
-      // ------------------------------------------------------
-
-      setAgentResponse(data)
-
+      updateChatState({
+        messages: [
+          ...messages,
+          {
+            type: 'user',
+            text: userMessage,
+          },
+          {
+            type: 'agent',
+            data,
+          },
+        ],
+        isAsking: false,
+      })
     } catch (error) {
-
       console.error(error)
 
-      setError(
-        'Could not connect to the Operations Agent. ' +
-        'Make sure the FastAPI backend is running.'
-      )
-
-    } finally {
-
-      setIsAsking(false)
-
+      updateChatState({
+        error:
+          'I could not connect to the Operations Agent. Please make sure the backend is running.',
+        isAsking: false,
+      })
     }
   }
 
-
-  // ==========================================================
-  // SUGGESTED QUESTIONS
-  // ==========================================================
-
-  const suggestedQuestions = [
-
-    'Which materials are low in stock?',
-
-    'How much Black Cotton Fabric do we have?',
-
-    'What is our total inventory?',
-
-    'Do we have enough Black Cotton Fabric for 4000 meters?',
-
-  ]
-
-
-  // ==========================================================
-  // HANDLE SUGGESTED QUESTION
-  // ==========================================================
-
-  function handleSuggestedQuestion(question) {
-
-    setMessage(question)
-
-    setError('')
-
+  function handleKeyDown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      handleSend()
+    }
   }
 
-
-  // ==========================================================
-  // RENDER
-  // ==========================================================
+  const suggestedQuestions = [
+    'Show me the full fabric stock list',
+    'Which materials are below safety stock?',
+    'How much Black Cotton Fabric is available?',
+    'Do we have enough fabric for the next production run?',
+  ]
 
   return (
+    <section className="w-full h-[calc(100vh-32px)] flex flex-col">
 
-    <div className="w-full">
+      {/* Header */}
+      <div className="mb-5 flex-shrink-0">
+        <div className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3] mb-3">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+          Factory assistant
+        </div>
+        <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
+          Ask Omni
+        </h2>
+
+        <p className="text-sm text-[#86612b] mt-2">
+          Factory operations assistant for stock, sourcing, and production planning
+        </p>
+      </div>
+
+
+      {/* Chat container */}
+      <div className="flex-1 min-h-0 bg-white border border-slate-200 rounded-2xl shadow-[0_12px_30px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
+
+        {/* Conversation */}
+        <div className="flex-1 min-h-0 p-6 overflow-y-auto">
+
+          {messages.length === 0 && (
+            <div className="flex items-center justify-center min-h-[400px]">
+
+              <div className="text-center max-w-md">
+
+                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#fff4dc] border border-[#f4d9a8] flex items-center justify-center shadow-sm">
+                  <span className="text-xl text-[#a76913]">
+                    ✦
+                  </span>
+                </div>
+
+                <h3 className="text-lg font-semibold text-slate-800">
+                  How can I help today?
+                </h3>
+
+                <p className="text-sm text-slate-500 mt-2 leading-6">
+                  Ask about raw material availability,
+                  production shortages, line constraints,
+                  or replenishment timing.
+                </p>
+
+              </div>
+
+            </div>
+          )}
+
+
+          <div className="space-y-6">
+
+            {messages.map((item, index) => (
+
+              <div key={index}>
+
+                {item.type === 'user' && (
+                  <UserMessage text={item.text} />
+                )}
+
+                {item.type === 'agent' && (
+                  <AgentResponse data={item.data} />
+                )}
+
+              </div>
+
+            ))}
+
+
+            {isAsking && (
+              <div>
+
+                <p className="text-xs font-medium text-slate-500 mb-2">
+                  Ask Omni
+                </p>
+
+                <div className="inline-flex items-center gap-2 bg-[#f7f1e7] text-[#5e4a2e] rounded-xl px-4 py-3 text-sm border border-[#ebdcb4]">
+
+                  <span className="w-2 h-2 rounded-full bg-[#d9a441] animate-pulse"></span>
+
+                  Checking factory data and supplier status...
+
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+
+          {error && (
+            <div className="mt-5 p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
+              {error}
+            </div>
+          )}
+
+        </div>
+
+
+        {/* Suggested questions */}
+        {messages.length === 0 && (
+          <div className="px-6 pb-5 flex-shrink-0 border-t border-slate-100 pt-4">
+
+            <p className="text-xs text-slate-400 mb-2">
+              Try asking
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+
+              {suggestedQuestions.map((question) => (
+                <button
+                  key={question}
+                  onClick={() => updateChatState({ draft: question })}
+                  className="px-3 py-2 rounded-lg border border-[#eadcc0] bg-[#fffaf2] text-xs text-[#5e4a2e] hover:border-[#d9a441] hover:bg-[#fff3d6] transition"
+                >
+                  {question}
+                </button>
+              ))}
+
+            </div>
+
+          </div>
+        )}
+
+
+        {/* Input */}
+        <div className="border-t border-slate-100 p-4 flex-shrink-0">
+
+          <div className="flex gap-3">
+
+            <input
+              type="text"
+              value={draft}
+              onChange={(event) => updateChatState({ draft: event.target.value })}
+              onKeyDown={handleKeyDown}
+              disabled={isAsking}
+              placeholder="Ask about fabric, shortages, or production planning..."
+              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#b87d39] focus:ring-2 focus:ring-[#d9a441]/20 transition"
+            />
+
+            <button
+              onClick={handleSend}
+              disabled={isAsking || !draft.trim()}
+              className="px-5 py-3 rounded-xl bg-[#1f3a36] hover:bg-[#274a44] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAsking ? '...' : 'Send'}
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+  )
+}
+
+
+/* ============================================================
+   USER MESSAGE
+============================================================ */
+
+function UserMessage({ text }) {
+  return (
+    <div className="flex justify-end">
+
+      <div className="max-w-[78%]">
+
+        <p className="text-xs text-slate-400 text-right mb-1">
+          You
+        </p>
+
+        <div className="bg-[#1f3a36] text-white rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6 shadow-sm">
+          {text}
+        </div>
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   AGENT RESPONSE
+============================================================ */
+
+function AgentResponse({ data }) {
+  if (!data) {
+    return null
+  }
+
+  return (
+    <div className="max-w-[92%]">
+
+      <p className="text-xs font-medium text-slate-500 mb-2">
+        Ops chat agent
+      </p>
 
 
       {/* ======================================================
-          HEADER
+          WORKFLOW
       ====================================================== */}
 
-      <div className="mb-5">
+      {data.workflow && data.workflow.length > 0 && (
 
-        <h2 className="text-2xl font-bold text-white">
-          Operations Agent
-        </h2>
+        <div className="mb-3">
 
-        <p className="text-slate-400 mt-1">
-          Ask the Operations Agent about inventory and
-          operational status.
+          <div className="flex flex-wrap items-center gap-2">
+
+            {data.workflow.map((agent, index) => (
+
+              <React.Fragment key={`${agent}-${index}`}>
+
+                <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-600">
+
+                  {index === 0 ? 'Operations Agent' : agent}
+
+                </span>
+
+                {index < data.workflow.length - 1 && (
+                  <span className="text-slate-300">
+                    →
+                  </span>
+                )}
+
+              </React.Fragment>
+
+            ))}
+
+          </div>
+
+        </div>
+
+      )}
+
+
+      {/* ======================================================
+          ANSWER
+      ====================================================== */}
+
+      {data.answer && (
+
+        <div className="bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
+
+          {data.answer}
+
+        </div>
+
+      )}
+
+
+      {/* ======================================================
+          INVENTORY LIST
+      ====================================================== */}
+
+      {data.intent === 'inventory_list' &&
+        data.results && (
+
+          <InventoryList
+            results={data.results}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          LOW STOCK
+      ====================================================== */}
+
+      {data.intent === 'low_stock' &&
+        data.results && (
+
+          <LowStockList
+            results={data.results}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          OUT OF STOCK
+      ====================================================== */}
+
+      {data.intent === 'out_of_stock' &&
+        data.results && (
+
+          <LowStockList
+            results={data.results}
+            outOfStock
+          />
+
+        )}
+
+
+      {/* ======================================================
+          HEALTHY STOCK
+      ====================================================== */}
+
+      {data.intent === 'healthy_stock' &&
+        data.results && (
+
+          <HealthyStockList
+            results={data.results}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          REORDER
+      ====================================================== */}
+
+      {data.intent === 'reorder_requirements' &&
+        data.results && (
+
+          <ReorderList
+            results={data.results}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          MATERIAL STATUS
+      ====================================================== */}
+
+      {data.intent === 'material_status' &&
+        data.result && (
+
+          <MaterialCard
+            result={data.result}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          INVENTORY REQUIREMENT
+      ====================================================== */}
+
+      {data.intent === 'inventory_requirement' &&
+        data.result && (
+
+          <RequirementCard
+            result={data.result}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          INVENTORY SUMMARY
+      ====================================================== */}
+
+      {data.intent === 'inventory_summary' &&
+        data.result && (
+
+          <SummaryCard
+            result={data.result}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          TOTAL STOCK
+      ====================================================== */}
+
+      {data.intent === 'total_stock' &&
+        data.result && (
+
+          <TotalStockCard
+            result={data.result}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          KPI
+      ====================================================== */}
+
+      {data.intent === 'inventory_kpis' &&
+        data.result && (
+
+          <KpiCard
+            result={data.result}
+          />
+
+        )}
+
+
+      {/* ======================================================
+          METADATA
+      ====================================================== */}
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-slate-400">
+
+        {data.intent && (
+          <span>
+            Intent: {formatIntent(data.intent)}
+          </span>
+        )}
+
+        {data.delegated_to && (
+          <span>
+            Delegated to: {data.delegated_to}
+          </span>
+        )}
+
+        {data.status && (
+          <span className={
+            data.status === 'success'
+              ? 'text-emerald-600'
+              : 'text-amber-600'
+          }>
+            {formatStatus(data.status)}
+          </span>
+        )}
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   INVENTORY LIST
+============================================================ */
+
+function InventoryList({ results }) {
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-white">
+
+      <div className="px-4 py-3 border-b border-slate-100">
+
+        <h3 className="font-semibold text-slate-800 text-sm">
+          Inventory details
+        </h3>
+
+        <p className="text-xs text-slate-400 mt-1">
+          {results.length} materials currently recorded
         </p>
 
       </div>
 
 
-      {/* ======================================================
-          INPUT + BUTTON
-      ====================================================== */}
+      <div className="divide-y divide-slate-100">
 
-      <div className="flex flex-col md:flex-row gap-3">
+        {results.map((item) => (
 
-        <input
-          type="text"
-          value={message}
-          onChange={(event) => {
-            setMessage(event.target.value)
-          }}
-          onKeyDown={(event) => {
-
-            if (event.key === 'Enter') {
-              handleAskAgent()
-            }
-
-          }}
-          placeholder="Example: How much Black Cotton Fabric do we have?"
-          className="
-            flex-1
-            px-5
-            py-4
-            rounded-xl
-            bg-slate-950/70
-            border
-            border-white/10
-            text-white
-            placeholder-slate-500
-            outline-none
-            focus:border-indigo-400
-            transition
-          "
-        />
-
-
-        <button
-          onClick={handleAskAgent}
-          disabled={
-            isAsking ||
-            !message.trim()
-          }
-          className="
-            px-7
-            py-4
-            rounded-xl
-            bg-indigo-500
-            hover:bg-indigo-400
-            text-white
-            font-semibold
-            transition
-            disabled:opacity-50
-            disabled:cursor-not-allowed
-          "
-        >
-
-          {isAsking
-            ? 'Asking...'
-            : 'Ask Agent'
-          }
-
-        </button>
-
-      </div>
-
-
-      {/* ======================================================
-          SUGGESTED QUESTIONS
-      ====================================================== */}
-
-      <div className="flex flex-wrap gap-2 mt-4">
-
-        {suggestedQuestions.map((question) => (
-
-          <button
-            key={question}
-            onClick={() => {
-              handleSuggestedQuestion(question)
-            }}
-            className="
-              px-4
-              py-2
-              rounded-lg
-              bg-white/5
-              border
-              border-white/10
-              text-sm
-              text-slate-300
-              hover:bg-white/10
-              transition
-            "
-          >
-
-            {question}
-
-          </button>
+          <InventoryRow
+            key={item.material_code}
+            item={item}
+          />
 
         ))}
 
       </div>
 
-
-      {/* ======================================================
-          ERROR MESSAGE
-      ====================================================== */}
-
-      {error && (
-
-        <div
-          className="
-            mt-5
-            p-4
-            rounded-xl
-            bg-red-500/10
-            border
-            border-red-400/20
-            text-red-300
-          "
-        >
-
-          {error}
-
-        </div>
-
-      )}
-
-
-      {/* ======================================================
-          AGENT RESPONSE
-      ====================================================== */}
-
-      {agentResponse && (
-
-        <div
-          className="
-            mt-6
-            p-6
-            rounded-2xl
-            bg-slate-950/70
-            border
-            border-white/10
-          "
-        >
-
-
-          {/* ==================================================
-              AGENT INFORMATION
-          ================================================== */}
-
-          <div
-            className="
-              grid
-              grid-cols-2
-              md:grid-cols-4
-              gap-5
-              mb-6
-            "
-          >
-
-
-            {/* AGENT */}
-
-            <div>
-
-              <p className="text-sm text-slate-500">
-                Agent
-              </p>
-
-              <p className="text-white font-semibold">
-                {agentResponse.agent || 'Operations Agent'}
-              </p>
-
-            </div>
-
-
-            {/* INTENT */}
-
-            <div>
-
-              <p className="text-sm text-slate-500">
-                Intent
-              </p>
-
-              <p className="text-indigo-300 font-semibold">
-                {agentResponse.intent || 'N/A'}
-              </p>
-
-            </div>
-
-
-            {/* DELEGATED TO */}
-
-            <div>
-
-              <p className="text-sm text-slate-500">
-                Delegated To
-              </p>
-
-              <p className="text-indigo-300 font-semibold">
-                {agentResponse.delegated_to || 'None'}
-              </p>
-
-            </div>
-
-
-            {/* STATUS */}
-
-            <div>
-
-              <p className="text-sm text-slate-500">
-                Status
-              </p>
-
-              <p
-                className={
-                  agentResponse.status === 'success'
-                    ? 'text-green-400 font-semibold'
-                    : 'text-red-400 font-semibold'
-                }
-              >
-                {agentResponse.status || 'unknown'}
-              </p>
-
-            </div>
-
-          </div>
-
-
-          {/* ==================================================
-              AGENT ANSWER
-          ================================================== */}
-
-          {agentResponse.answer && (
-
-            <div className="mb-6">
-
-              <p className="text-sm text-slate-500 mb-2">
-                Agent Answer
-              </p>
-
-              <p
-                className="
-                  text-xl
-                  text-white
-                  leading-relaxed
-                  whitespace-pre-line
-                "
-              >
-
-                {agentResponse.answer.replace(
-                  /\*\*/g,
-                  ''
-                )}
-
-              </p>
-
-            </div>
-
-          )}
-
-
-          {/* ==================================================
-              INVENTORY REQUIREMENT
-          ================================================== */}
-
-          {agentResponse.result &&
-            agentResponse.intent === 'inventory_requirement' && (
-
-            <InventoryRequirementCard
-              result={agentResponse.result}
-            />
-
-          )}
-
-
-          {/* ==================================================
-              SPECIFIC MATERIAL
-          ================================================== */}
-
-          {agentResponse.result &&
-            agentResponse.intent === 'material_status' && (
-
-            <MaterialStatusCard
-              result={agentResponse.result}
-            />
-
-          )}
-
-
-          {/* ==================================================
-              TOTAL STOCK
-          ================================================== */}
-
-          {agentResponse.result &&
-            agentResponse.intent === 'total_stock' && (
-
-            <TotalStockCard
-              result={agentResponse.result}
-            />
-
-          )}
-
-
-          {/* ==================================================
-              LOW STOCK
-          ================================================== */}
-
-          {agentResponse.results &&
-            Array.isArray(agentResponse.results) &&
-            agentResponse.results.length > 0 && (
-
-            <LowStockCard
-              results={agentResponse.results}
-            />
-
-          )}
-
-        </div>
-
-      )}
-
     </div>
-
   )
 }
 
 
-// ============================================================
-// INVENTORY REQUIREMENT CARD
-// ============================================================
+/* ============================================================
+   INVENTORY ROW
+============================================================ */
 
-function InventoryRequirementCard({ result }) {
+function InventoryRow({ item }) {
 
-  const isShortage =
-    result.status === 'SHORTAGE'
-
+  const lowStock = item.status === 'LOW_STOCK'
+  const outOfStock = item.status === 'OUT_OF_STOCK'
 
   return (
+    <div className="px-4 py-4">
 
-    <div
-      className="
-        p-5
-        rounded-xl
-        bg-white/5
-        border
-        border-white/10
-      "
-    >
+      <div className="flex items-center justify-between gap-4">
 
-      {/* HEADER */}
+        <div>
 
-      <div className="flex items-center justify-between mb-5">
+          <p className="text-sm font-medium text-slate-800">
+            {item.material_name}
+          </p>
 
-        <h3 className="text-lg font-semibold text-white">
-          Inventory Requirement
-        </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            {item.material_code}
+          </p>
 
-        <span
-          className={
-            isShortage
-              ? `
-                px-3
-                py-1
-                rounded-full
-                text-xs
-                font-semibold
-                bg-red-500/10
-                text-red-400
-              `
-              : `
-                px-3
-                py-1
-                rounded-full
-                text-xs
-                font-semibold
-                bg-green-500/10
-                text-green-400
-              `
-          }
-        >
+        </div>
 
-          {isShortage
-            ? 'SHORTAGE'
-            : 'SUFFICIENT'
-          }
+
+        <span className={
+
+          outOfStock
+            ? 'px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-xs font-medium'
+            : lowStock
+              ? 'px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 text-xs font-medium'
+              : 'px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 text-xs font-medium'
+
+        }>
+
+          {outOfStock
+            ? 'Out of stock'
+            : lowStock
+              ? 'Low stock'
+              : 'Healthy'}
 
         </span>
 
       </div>
 
 
-      {/* DATA */}
-
-      <div
-        className="
-          grid
-          grid-cols-2
-          md:grid-cols-4
-          gap-4
-        "
-      >
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Material
-          </p>
-
-          <p className="text-white font-medium">
-            {result.material_name}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Available
-          </p>
-
-          <p className="text-white font-medium">
-            {result.available_quantity}{' '}
-            {result.unit}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Required
-          </p>
-
-          <p className="text-white font-medium">
-            {result.required_quantity}{' '}
-            {result.unit}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Shortage
-          </p>
-
-          <p
-            className={
-              isShortage
-                ? 'text-red-400 font-medium'
-                : 'text-green-400 font-medium'
-            }
-          >
-
-            {result.shortage}{' '}
-            {result.unit}
-
-          </p>
-
-        </div>
-
-      </div>
-
-
-      {/* MESSAGE */}
-
-      {result.message && (
-
-        <div
-          className={
-            isShortage
-              ? `
-                mt-5
-                p-4
-                rounded-lg
-                bg-red-500/10
-                text-red-300
-              `
-              : `
-                mt-5
-                p-4
-                rounded-lg
-                bg-green-500/10
-                text-green-300
-              `
-          }
-        >
-
-          {result.message}
-
-        </div>
-
-      )}
-
-    </div>
-
-  )
-}
-
-
-// ============================================================
-// MATERIAL STATUS CARD
-// ============================================================
-
-function MaterialStatusCard({ result }) {
-
-  const isLowStock =
-    result.status === 'LOW_STOCK'
-
-
-  return (
-
-    <div
-      className="
-        p-5
-        rounded-xl
-        bg-white/5
-        border
-        border-white/10
-      "
-    >
-
-      <h3 className="text-lg font-semibold text-white mb-5">
-        Inventory Details
-      </h3>
-
-
-      <div
-        className="
-          grid
-          grid-cols-2
-          md:grid-cols-4
-          gap-4
-        "
-      >
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Material
-          </p>
-
-          <p className="text-white font-medium">
-            {result.material_name}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Current Stock
-          </p>
-
-          <p className="text-white font-medium">
-            {result.current_stock}{' '}
-            {result.unit}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Reorder Level
-          </p>
-
-          <p className="text-white font-medium">
-            {result.reorder_level}{' '}
-            {result.unit}
-          </p>
-
-        </div>
-
-
-        <div>
-
-          <p className="text-sm text-slate-500">
-            Shortage
-          </p>
-
-          <p
-            className={
-              isLowStock
-                ? 'text-red-400 font-medium'
-                : 'text-green-400 font-medium'
-            }
-          >
-
-            {result.shortage}{' '}
-            {result.unit}
-
-          </p>
-
-        </div>
-
-      </div>
-
-
-      {/* RECOMMENDATION */}
-
-      {result.recommendation && (
-
-        <div className="mt-4">
-
-          <p className="text-sm text-slate-500">
-            Recommendation
-          </p>
-
-          <p className="text-indigo-300 font-medium">
-            {result.recommendation}
-          </p>
-
-        </div>
-
-      )}
-
-    </div>
-
-  )
-}
-
-
-// ============================================================
-// TOTAL STOCK CARD
-// ============================================================
-
-function TotalStockCard({ result }) {
-
-  return (
-
-    <div
-      className="
-        p-5
-        rounded-xl
-        bg-white/5
-        border
-        border-white/10
-      "
-    >
-
-      <h3 className="text-lg font-semibold text-white mb-4">
-        Total Inventory
-      </h3>
-
-
-      <div className="flex items-end gap-3">
-
-        <span className="text-4xl font-bold text-white">
-
-          {result.total_stock}
-
-        </span>
-
-        <span className="text-slate-400 mb-1">
-
-          {result.unit}
-
-        </span>
+      <div className="grid grid-cols-3 gap-4 mt-4">
+
+        <Detail
+          label="Current stock"
+          value={`${item.current_stock} ${item.unit}`}
+        />
+
+        <Detail
+          label="Reorder level"
+          value={`${item.reorder_level} ${item.unit}`}
+        />
+
+        <Detail
+          label="Shortage"
+          value={`${item.shortage} ${item.unit}`}
+          danger={lowStock || outOfStock}
+        />
 
       </div>
 
     </div>
-
   )
 }
 
 
-// ============================================================
-// LOW STOCK CARD
-// ============================================================
+/* ============================================================
+   LOW STOCK
+============================================================ */
 
-function LowStockCard({ results }) {
+function LowStockList({ results, outOfStock = false }) {
+
+  if (results.length === 0) {
+
+    return (
+      <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm">
+        {outOfStock
+          ? 'There are currently no materials completely out of stock.'
+          : 'Good news — there are currently no materials below their reorder levels.'
+        }
+      </div>
+    )
+
+  }
+
 
   return (
-
-    <div className="space-y-3">
-
-      <div className="flex items-center justify-between">
-
-        <h3 className="text-lg font-semibold text-white">
-          Low Stock Materials
-        </h3>
-
-        <span className="text-red-400 font-semibold">
-          {results.length} item
-          {results.length !== 1 ? 's' : ''}
-        </span>
-
-      </div>
-
+    <div className="mt-4 space-y-2">
 
       {results.map((item) => (
 
-        <div
+        <InventoryRow
           key={item.material_code}
-          className="
-            p-4
-            rounded-xl
-            bg-white/5
-            border
-            border-white/10
-          "
-        >
-
-
-          {/* MATERIAL HEADER */}
-
-          <div className="flex justify-between">
-
-            <div>
-
-              <p className="text-white font-semibold">
-                {item.material_name}
-              </p>
-
-              <p className="text-sm text-slate-500">
-                {item.material_code}
-              </p>
-
-            </div>
-
-
-            <span className="text-red-400 font-semibold">
-              LOW STOCK
-            </span>
-
-          </div>
-
-
-          {/* INVENTORY DATA */}
-
-          <div
-            className="
-              grid
-              grid-cols-2
-              md:grid-cols-3
-              gap-4
-              mt-4
-              text-sm
-            "
-          >
-
-            <div>
-
-              <p className="text-slate-500">
-                Current Stock
-              </p>
-
-              <p className="text-white">
-                {item.current_stock}{' '}
-                {item.unit}
-              </p>
-
-            </div>
-
-
-            <div>
-
-              <p className="text-slate-500">
-                Reorder Level
-              </p>
-
-              <p className="text-white">
-                {item.reorder_level}{' '}
-                {item.unit}
-              </p>
-
-            </div>
-
-
-            <div>
-
-              <p className="text-slate-500">
-                Shortage
-              </p>
-
-              <p className="text-red-400">
-                {item.shortage}{' '}
-                {item.unit}
-              </p>
-
-            </div>
-
-          </div>
-
-
-          {/* RECOMMENDATION */}
-
-          {item.recommendation && (
-
-            <p className="mt-4 text-indigo-300">
-              {item.recommendation}
-            </p>
-
-          )}
-
-        </div>
+          item={item}
+        />
 
       ))}
 
     </div>
-
   )
+}
+
+
+/* ============================================================
+   HEALTHY STOCK
+============================================================ */
+
+function HealthyStockList({ results }) {
+
+  return (
+    <div className="mt-4 border border-emerald-100 rounded-xl overflow-hidden">
+
+      <div className="px-4 py-3 bg-emerald-50">
+
+        <p className="text-sm font-semibold text-emerald-700">
+          Healthy inventory
+        </p>
+
+        <p className="text-xs text-emerald-600 mt-1">
+          {results.length} materials are currently at or above
+          their reorder levels.
+        </p>
+
+      </div>
+
+      {results.map((item) => (
+
+        <InventoryRow
+          key={item.material_code}
+          item={item}
+        />
+
+      ))}
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   REORDER LIST
+============================================================ */
+
+function ReorderList({ results }) {
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden">
+
+      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+
+        <p className="text-sm font-semibold text-slate-800">
+          Replenishment requirements
+        </p>
+
+      </div>
+
+
+      <div className="divide-y divide-slate-100">
+
+        {results.map((item) => (
+
+          <div
+            key={item.material_code}
+            className="px-4 py-4"
+          >
+
+            <p className="text-sm font-medium text-slate-800">
+              {item.material_name}
+            </p>
+
+            <div className="grid grid-cols-3 gap-4 mt-3">
+
+              <Detail
+                label="Current"
+                value={`${item.current_stock} ${item.unit}`}
+              />
+
+              <Detail
+                label="Reorder level"
+                value={`${item.reorder_level} ${item.unit}`}
+              />
+
+              <Detail
+                label="Replenish"
+                value={`${item.reorder_quantity} ${item.unit}`}
+                danger
+              />
+
+            </div>
+
+          </div>
+
+        ))}
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   MATERIAL CARD
+============================================================ */
+
+function MaterialCard({ result }) {
+
+  const lowStock = result.status === 'LOW_STOCK'
+  const outOfStock = result.status === 'OUT_OF_STOCK'
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl p-4">
+
+      <div className="flex justify-between items-start gap-3 mb-4">
+
+        <div>
+
+          <h3 className="text-sm font-semibold text-slate-800">
+            {result.material_name}
+          </h3>
+
+          <p className="text-xs text-slate-400 mt-1">
+            {result.material_code}
+          </p>
+
+        </div>
+
+
+        <span className={
+          outOfStock
+            ? 'px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-xs'
+            : lowStock
+              ? 'px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 text-xs'
+              : 'px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 text-xs'
+        }>
+          {outOfStock
+            ? 'Out of stock'
+            : lowStock
+              ? 'Low stock'
+              : 'Healthy'
+          }
+        </span>
+
+      </div>
+
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        <Detail
+          label="Current stock"
+          value={`${result.current_stock} ${result.unit}`}
+        />
+
+        <Detail
+          label="Reorder level"
+          value={`${result.reorder_level} ${result.unit}`}
+        />
+
+        <Detail
+          label="Shortage"
+          value={`${result.shortage} ${result.unit}`}
+          danger={lowStock || outOfStock}
+        />
+
+        <Detail
+          label="Recommendation"
+          value={result.recommendation}
+        />
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   REQUIREMENT CARD
+============================================================ */
+
+function RequirementCard({ result }) {
+
+  const shortage = result.status === 'SHORTAGE'
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl p-4">
+
+      <div className="flex justify-between items-center mb-4">
+
+        <h3 className="text-sm font-semibold text-slate-800">
+          Inventory requirement
+        </h3>
+
+        <span className={
+          shortage
+            ? 'px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-xs font-medium'
+            : 'px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 text-xs font-medium'
+        }>
+          {shortage ? 'Shortage' : 'Sufficient stock'}
+        </span>
+
+      </div>
+
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        <Detail
+          label="Material"
+          value={result.material_name}
+        />
+
+        <Detail
+          label="Available"
+          value={`${result.available_quantity} ${result.unit}`}
+        />
+
+        <Detail
+          label="Required"
+          value={`${result.required_quantity} ${result.unit}`}
+        />
+
+        <Detail
+          label="Shortage"
+          value={`${result.shortage} ${result.unit}`}
+          danger={shortage}
+        />
+
+      </div>
+
+
+      {result.message && (
+        <div className={
+          shortage
+            ? 'mt-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm'
+            : 'mt-4 p-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm'
+        }>
+          {result.message}
+        </div>
+      )}
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   SUMMARY CARD
+============================================================ */
+
+function SummaryCard({ result }) {
+
+  const critical = result.inventory_health === 'CRITICAL'
+  const needsAttention = result.inventory_health === 'NEEDS_ATTENTION'
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl p-4">
+
+      <div className="flex justify-between items-center mb-4">
+
+        <h3 className="text-sm font-semibold text-slate-800">
+          Inventory health
+        </h3>
+
+        <span className={
+          critical
+            ? 'px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-xs'
+            : needsAttention
+              ? 'px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 text-xs'
+              : 'px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 text-xs'
+        }>
+          {result.inventory_health}
+        </span>
+
+      </div>
+
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        <Detail
+          label="Total materials"
+          value={result.total_materials}
+        />
+
+        <Detail
+          label="Healthy"
+          value={result.healthy_materials}
+        />
+
+        <Detail
+          label="Low stock"
+          value={result.low_stock_materials}
+          danger={result.low_stock_materials > 0}
+        />
+
+        <Detail
+          label="Out of stock"
+          value={result.out_of_stock_materials}
+          danger={result.out_of_stock_materials > 0}
+        />
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   TOTAL STOCK CARD
+============================================================ */
+
+function TotalStockCard({ result }) {
+
+  const units = result.units?.join(', ') || ''
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl p-4">
+
+      <h3 className="text-sm font-semibold text-slate-800 mb-4">
+        Total inventory
+      </h3>
+
+      <div className="grid grid-cols-2 gap-4">
+
+        <Detail
+          label="Total stock"
+          value={`${result.total_stock} ${units}`}
+        />
+
+        <Detail
+          label="Materials"
+          value={result.material_count}
+        />
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   KPI CARD
+============================================================ */
+
+function KpiCard({ result }) {
+
+  return (
+    <div className="mt-4 border border-slate-200 rounded-xl p-4">
+
+      <h3 className="text-sm font-semibold text-slate-800 mb-4">
+        Inventory KPIs
+      </h3>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+        <Detail
+          label="Total materials"
+          value={result.total_materials}
+        />
+
+        <Detail
+          label="Healthy"
+          value={`${result.healthy_percentage}%`}
+        />
+
+        <Detail
+          label="Low stock"
+          value={`${result.low_stock_percentage}%`}
+        />
+
+        <Detail
+          label="Out of stock"
+          value={`${result.out_of_stock_percentage}%`}
+          danger={result.out_of_stock_percentage > 0}
+        />
+
+      </div>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   DETAIL
+============================================================ */
+
+function Detail({
+  label,
+  value,
+  danger = false,
+}) {
+
+  return (
+    <div>
+
+      <p className="text-xs text-slate-400 mb-1">
+        {label}
+      </p>
+
+      <p className={
+        danger
+          ? 'text-sm font-semibold text-red-600'
+          : 'text-sm font-medium text-slate-800'
+      }>
+        {value}
+      </p>
+
+    </div>
+  )
+}
+
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function formatIntent(intent) {
+
+  return intent
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+
+function formatStatus(status) {
+
+  return status
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 
