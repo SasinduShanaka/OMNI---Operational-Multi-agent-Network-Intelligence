@@ -3,7 +3,11 @@ import json
 import re
 
 from dotenv import load_dotenv
-from groq import Groq
+
+try:
+    from groq import Groq
+except ImportError:  # pragma: no cover
+    Groq = None
 
 from agents.inventory_agent import (
     get_all_inventory,
@@ -34,9 +38,11 @@ load_dotenv(ENV_PATH)
 # GROQ CLIENT
 # ============================================================
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
+client = None
+if Groq is not None:
+    api_key = os.getenv("GROQ_API_KEY")
+    if api_key:
+        client = Groq(api_key=api_key)
 
 MODEL_NAME = "openai/gpt-oss-20b"
 
@@ -46,6 +52,14 @@ MODEL_NAME = "openai/gpt-oss-20b"
 # ============================================================
 
 def understand_request(user_request: str):
+
+    if client is None:
+        return {
+            "intent": "general_chat",
+            "material_name": None,
+            "material_code": None,
+            "required_quantity": None,
+        }
 
     prompt = f"""
 You are the Operations Agent of OMNI.
@@ -265,7 +279,49 @@ def clean_response(text):
 
 
 # ============================================================
-# 3. GENERATE HUMAN-FRIENDLY RESPONSE
+# 3. GENERAL CHAT RESPONSE
+# ============================================================
+
+def generate_general_chat_response(user_request):
+    if client is None:
+        return (
+            "I’m OMNI, your operations assistant. I can help with factory inventory, stock shortages, reorder planning, and day-to-day manufacturing questions."
+        )
+
+    prompt = f"""
+You are OMNI, a helpful operational assistant for a garment manufacturing business.
+
+Answer the user's message naturally and professionally.
+Keep the answer concise, practical, and friendly.
+If the user asks a general question, answer it normally.
+If the user asks about factory operations, inventory, or supply issues, stay useful and business-focused.
+
+User message:
+"{user_request}"
+
+Reply in plain natural language without markdown.
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a friendly, professional operations assistant for a garment manufacturing company."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.7,
+    )
+
+    return clean_response(response.choices[0].message.content)
+
+
+# ============================================================
+# 4. GENERATE HUMAN-FRIENDLY RESPONSE
 # ============================================================
 
 def generate_final_response(user_request, inventory_data):
@@ -355,7 +411,84 @@ Return only the final natural-language answer.
 # 4. PROCESS INVENTORY REQUEST
 # ============================================================
 
+def is_general_chat_request(normalized_request: str):
+    general_phrases = [
+        "hello", "hi", "hey", "thank you", "thanks", "thankyou",
+        "what can you do", "who are you", "what is your name",
+        "how are you", "how are you doing", "how's it going",
+        "can you help me", "good morning", "good afternoon", "good evening",
+        "tell me a joke", "what do you know", "what are you", "how do you work",
+        "i need help", "help me", "how can you help"
+    ]
+
+    text = normalized_request.strip()
+
+    if not text:
+        return False
+
+    return any(phrase in text for phrase in general_phrases)
+
+
 def process_request(user_request: str):
+
+    normalized_request = (user_request or "").strip().lower()
+
+    if is_general_chat_request(normalized_request):
+        return {
+            "agent": "Operations Agent",
+            "llm_used": bool(client),
+            "intent": "general_chat",
+            "status": "success",
+            "workflow": ["Operations Agent"],
+            "answer": generate_general_chat_response(user_request),
+        }
+
+    if client is None:
+        return {
+            "agent": "Operations Agent",
+            "llm_used": False,
+            "intent": "general_chat",
+            "status": "success",
+            "workflow": ["Operations Agent"],
+            "answer": "I’m OMNI, your operations assistant. I can help with factory inventory, stock shortages, reorder planning, and day-to-day manufacturing questions.",
+        }
+
+    general_responses = {
+        "hello": "Hello! I’m OMNI, your operations assistant. I can help with stock checks, shortages, reorder planning, and production questions.",
+        "hi": "Hi! I’m OMNI, your operations assistant. I can help with stock checks, shortages, reorder planning, and production questions.",
+        "hey": "Hey! I’m OMNI, your operations assistant. I can help with stock checks, shortages, reorder planning, and production questions.",
+        "thank you": "You’re welcome. I’m here to help with inventory and operations questions.",
+        "thanks": "You’re welcome. I’m here to help with inventory and operations questions.",
+        "thankyou": "You’re welcome. I’m here to help with inventory and operations questions.",
+        "what can you do": "I can help with inventory, low-stock alerts, reorder planning, material availability, and operational questions for the factory.",
+        "who are you": "I’m OMNI, the operations assistant for this manufacturing workflow. I can help with stock, supplier, and production planning questions.",
+        "what is your name": "I’m OMNI, the operations assistant for this manufacturing workflow.",
+        "can you help me": "Yes — I can help with inventory, shortages, reorders, and production planning questions.",
+        "good morning": "Good morning. I can help with inventory and operations questions for the factory.",
+        "good afternoon": "Good afternoon. I can help with inventory and operations questions for the factory.",
+        "good evening": "Good evening. I can help with inventory and operations questions for the factory.",
+    }
+
+    for phrase, reply in general_responses.items():
+        if normalized_request == phrase or normalized_request.startswith(f"{phrase} ") or normalized_request.endswith(f" {phrase}"):
+            return {
+                "agent": "Operations Agent",
+                "llm_used": False,
+                "intent": "conversation",
+                "status": "success",
+                "workflow": ["Operations Agent"],
+                "answer": reply,
+            }
+
+    if any(keyword in normalized_request for keyword in ["hello", "hi ", "hey ", "thank you", "thanks", "what can you do", "who are you", "what is your name", "can you help me"]):
+        return {
+            "agent": "Operations Agent",
+            "llm_used": False,
+            "intent": "conversation",
+            "status": "success",
+            "workflow": ["Operations Agent"],
+            "answer": "I can help with inventory checks, stock shortages, reorder planning, and day-to-day operations questions for the factory.",
+        }
 
     # --------------------------------------------------------
     # Understand the user's request
@@ -849,21 +982,18 @@ def process_request(user_request: str):
 
 
     # ========================================================
-    # UNKNOWN
+    # UNKNOWN / GENERAL CHAT
     # ========================================================
+
+    general_answer = generate_general_chat_response(user_request)
 
     return {
         "agent": "Operations Agent",
-        "llm_used": True,
-        "intent": "unknown",
-        "status": "unable_to_route",
+        "llm_used": bool(client),
+        "intent": "general_chat",
+        "status": "success",
         "workflow": [
             "Operations Agent"
         ],
-        "answer": (
-            "I can help with inventory and operational questions. "
-            "For example, you can ask me about current stock, "
-            "low-stock materials, shortages, reorder requirements, "
-            "or whether we have enough material for a specific order."
-        )
+        "answer": general_answer
     }
