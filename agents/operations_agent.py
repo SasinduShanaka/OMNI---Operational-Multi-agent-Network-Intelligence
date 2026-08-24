@@ -1,5 +1,16 @@
-from agents.inventory_agent import check_inventory
+import requests
 
+
+# --------------------------------------------------
+# Inventory Agent API
+# --------------------------------------------------
+
+INVENTORY_AGENT_URL = "http://127.0.0.1:8000"
+
+
+# --------------------------------------------------
+# Operations Agent
+# --------------------------------------------------
 
 def process_request(user_request: str):
 
@@ -20,22 +31,44 @@ def process_request(user_request: str):
 
     if any(keyword in request for keyword in inventory_keywords):
 
-        inventory_result = check_inventory()
+        try:
 
-        low_stock_items = [
-            item
-            for item in inventory_result
-            if item["status"] == "LOW_STOCK"
-        ]
+            # Operations Agent communicates
+            # with Inventory Agent through HTTP
+            response = requests.get(
+                f"{INVENTORY_AGENT_URL}/inventory/status",
+                timeout=5
+            )
 
-        return {
-            "agent": "Operations Agent",
-            "task": "Inventory Analysis",
-            "delegated_to": "Inventory Agent",
-            "status": "success",
-            "low_stock_count": len(low_stock_items),
-            "results": low_stock_items
-        }
+            response.raise_for_status()
+
+            inventory_data = response.json()
+
+            low_stock_items = inventory_data.get(
+                "low_stock_items",
+                []
+            )
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Inventory Analysis",
+                "delegated_to": "Inventory Agent",
+                "communication": "HTTP REST",
+                "status": "success",
+                "low_stock_count": len(low_stock_items),
+                "results": low_stock_items
+            }
+
+        except requests.exceptions.RequestException as error:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Inventory Analysis",
+                "delegated_to": "Inventory Agent",
+                "status": "error",
+                "message": "Unable to communicate with Inventory Agent.",
+                "error": str(error)
+            }
 
     # ----------------------------------------
     # Unknown request

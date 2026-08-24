@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agents.inventory_agent import check_inventory
@@ -9,6 +10,13 @@ app = FastAPI(
     title="OMNI API",
     description="Operational Multi-agent Network Intelligence",
     version="1.0.0"
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -38,7 +46,14 @@ def root():
         "status": "online"
     }
 
+@app.get("/health")
+def health():
 
+    return {
+        "status": "healthy",
+        "system": "OMNI",
+        "service": "backend"
+    }
 # --------------------------------------------------
 # Inventory Agent endpoint
 # --------------------------------------------------
