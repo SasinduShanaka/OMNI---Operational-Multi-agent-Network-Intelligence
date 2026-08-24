@@ -53,12 +53,15 @@ function Sidebar({ activePage, onPageChange }) {
 
       <div className="h-16 flex items-center px-4 border-b border-slate-800">
 
-        <div className="w-7 h-7 rounded-md bg-indigo-500 flex items-center justify-center font-bold text-sm mr-2">
-          A
+        <div className="w-7 h-7 rounded-md bg-gradient-to-br from-[#d9a441] via-[#b87d39] to-[#7d5d2f] flex items-center justify-center mr-2 shadow-md ring-1 ring-white/20">
+          <span className="relative block w-3.5 h-3.5">
+            <span className="absolute inset-0 rounded-full border-2 border-[#fffaf1]" />
+            <span className="absolute top-[5px] left-[5px] h-1.5 w-1.5 rounded-full bg-[#fffaf1]/90" />
+          </span>
         </div>
 
-        <span className="font-semibold text-white">
-          AgentOps
+        <span className="font-semibold text-white tracking-[0.24em] text-xs">
+          OMNI
         </span>
 
       </div>

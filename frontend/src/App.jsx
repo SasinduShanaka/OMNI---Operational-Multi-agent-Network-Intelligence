@@ -108,23 +108,26 @@ function Sidebar({ activePage, setActivePage }) {
             flex
             items-center
             justify-center
-            text-sm
-            font-bold
-            text-[#fffaf1]
             shadow-md
+            ring-1 ring-white/20
           "
+          aria-label="OMNI logo"
         >
-          O
+          <div className="relative w-4 h-4">
+            <span className="absolute inset-0 rounded-full border-2 border-[#fffaf1]" />
+            <span className="absolute top-1 left-1 h-2 w-2 rounded-full bg-[#fffaf1]/90" />
+          </div>
         </div>
 
         <span
           className="
             text-sm
             font-semibold
-            tracking-wide
+            tracking-[0.18em]
+            text-[#f8f1df]
           "
         >
-          OMNI management
+          OMNI
         </span>
 
       </div>
