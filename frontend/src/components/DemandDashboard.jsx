@@ -1,3 +1,4 @@
+import DemandDataQuality from './DemandDataQuality'
 import { useState } from 'react'
 import { createForecastPdf } from './exportForecastReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
@@ -52,6 +53,7 @@ export default function DemandDashboard({ sku, setSku, periods, setPeriods, prod
       </form>
       {exportError && <p role="alert" className="text-sm text-amber-800">{exportError}</p>}
       {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
+      <DemandDataQuality sku={sku} result={result} />
       {pending && <p role="status" className="text-sm text-amber-800">Selection changed. Run forecast to update the results below.</p>}
 
       <section className="relative overflow-hidden rounded-3xl bg-[#102e2b] p-6 text-white sm:p-8">

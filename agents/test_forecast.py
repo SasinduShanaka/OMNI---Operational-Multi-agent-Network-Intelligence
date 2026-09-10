@@ -99,6 +99,38 @@ class DemandForecastAgentTests(unittest.TestCase):
         self.assertEqual(result["history_points"], 3)
         self.assertEqual(result["forecast"], 800.0)
 
+    def test_quality_detects_invalid_records_without_mutating(self):
+        records = [
+            {"_id": "bad", "date": "invalid", "quantity": -1},
+            {"_id": "zero", "date": "2026-01-01", "quantity": 0, "product_name": "Shirt"},
+            {"_id": "bool", "date": "2026-02-01", "quantity": True},
+        ]
+        history, quality = forecast_agent.analyze_demand_records("GAR-003", records)
+        self.assertEqual(quality["invalid_records"], 2)
+        self.assertEqual(history[0]["quantity"], 0)
+        self.assertFalse(quality["can_forecast"])
+        self.assertEqual(records[0]["quantity"], -1)
+
+    def test_quality_flags_duplicate_months_and_name_changes(self):
+        forecast_agent.demand_collection.records.append({"_id": "duplicate", "sku": "GAR-003", "product_name": "Other name", "date": "2026-03-01", "quantity": 700})
+        quality = forecast_agent.get_demand_quality("GAR-003")
+        codes = {issue["code"] for issue in quality["issues"]}
+        self.assertIn("multiple_records_per_month", codes)
+        self.assertIn("inconsistent_product_names", codes)
+        self.assertTrue(quality["can_forecast"])
+
+    def test_missing_month_blocks_forecast(self):
+        forecast_agent.demand_collection.records[-1]["date"] = datetime(2026, 4, 1)
+        result = forecast_agent.forecast_demand("GAR-003", save_audit=False)
+        self.assertEqual(result["error_code"], "missing_months")
+        self.assertEqual(result["data_quality"]["missing_months"], ["2026-03"])
+
+    def test_clean_eight_months_pass_quality(self):
+        records = [{"date": datetime(2026, month, 1), "quantity": 100, "product_name": "Shirt"} for month in range(1, 9)]
+        _, quality = forecast_agent.analyze_demand_records("GAR-003", records)
+        self.assertEqual(quality["status"], "passed")
+        self.assertEqual(quality["issues"], [])
+
     def test_reports_missing_history(self):
         result = forecast_agent.forecast_demand("GAR-999")
 

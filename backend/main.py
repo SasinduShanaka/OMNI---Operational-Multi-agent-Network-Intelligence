@@ -40,7 +40,7 @@ load_dotenv(ENV_PATH)
 # ============================================================
 
 from agents.operations_agent import process_request
-from agents.forecast_agent import forecast_demand, get_forecast_products
+from agents.forecast_agent import forecast_demand, get_forecast_products, get_demand_quality
 
 from agents.inventory_agent import (
     check_inventory,
@@ -165,6 +165,16 @@ def ask_agent(request: AskRequest):
 # ============================================================
 # DEMAND FORECAST AGENT
 # ============================================================
+
+@app.get("/forecast/data-quality/{sku}")
+def demand_quality(sku: str):
+    try:
+        return get_demand_quality(sku)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail={"message": str(error)})
+    except Exception:
+        raise HTTPException(status_code=503, detail={"message": "Unable to check demand data. Check MongoDB connectivity."})
+
 
 @app.get("/forecast/products")
 def forecast_products():
