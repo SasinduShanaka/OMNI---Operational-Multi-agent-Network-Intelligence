@@ -87,6 +87,9 @@ db.sqlite3-journal
 # SQLite databases (all environments)
 *.db
 
+# ChromaDB vector store (generated, supply chain RAG)
+knowledge/supply_chain/rag/chroma_store/
+
 # Flask stuff:
 instance/
 .webassets-cache

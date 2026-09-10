@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import InventoryPage from './components/InventoryPage'
 import OperationsAgent from './components/OperationsAgent'
+import SupplyChainPanel from './components/SupplyChainPanel'
 
 
 // ============================================================
@@ -1036,9 +1037,7 @@ function App() {
       case 'supplier':
 
         return (
-          <PlaceholderPage
-            title="Supplier intelligence agent"
-          />
+          <SupplyChainPanel />
         )
 
 

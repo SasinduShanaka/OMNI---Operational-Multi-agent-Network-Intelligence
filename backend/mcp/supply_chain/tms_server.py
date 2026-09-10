@@ -7,7 +7,7 @@ from datetime import date
 # --------------------------------------------------
 
 DB_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "database", "sqlite_db")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "database", "supply_chain", "sqlite_db")
 )
 sys.path.insert(0, DB_DIR)
 

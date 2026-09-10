@@ -7,7 +7,7 @@ from datetime import date
 # --------------------------------------------------
 
 DB_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "database", "sqlite_db")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "database", "supply_chain", "sqlite_db")
 )
 sys.path.insert(0, DB_DIR)
 
@@ -78,7 +78,7 @@ def draft_po(
         supplier_id:    ID of the chosen supplier (from search_suppliers).
         requirement_id: ID of the production plan requirement being fulfilled.
         qty:            Quantity to order.
-        total_value:    Total cost of the order (qty × unit price).
+        total_value:    Total cost of the order (qty * unit price).
 
     Returns:
         The newly created PO id and its pending status.
