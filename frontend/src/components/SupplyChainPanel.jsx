@@ -1,325 +1,248 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import SuppliersTab from './supply_chain/SuppliersTab'
+import PurchaseOrdersTab from './supply_chain/PurchaseOrdersTab'
+import ShipmentsTab from './supply_chain/ShipmentsTab'
+import CopilotChat from './supply_chain/CopilotChat'
 import { supplyChainApi } from '../api/supplyChainApi'
 
 // ------------------------------------------------------------------
-// Sub-components: Beautiful UI Cards for Business Data
+// Metric Card — matches the Dashboard MetricCard style exactly
 // ------------------------------------------------------------------
+const ACCENT = {
+  amber:  { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-400',   border: 'border-amber-100' },
+  green:  { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400', border: 'border-emerald-100' },
+  blue:   { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-400',    border: 'border-blue-100' },
+  orange: { bg: 'bg-orange-50',  text: 'text-orange-700',  dot: 'bg-orange-400',  border: 'border-orange-100' },
+}
 
-function PurchaseOrderCard({ po, onApprove, onReject, isLoading }) {
+function MetricCard({ title, value, subtitle, accent = 'amber', icon }) {
+  const a = ACCENT[accent]
   return (
-    <div className="bg-white rounded-xl shadow-md border border-gray-100 p-5 mt-3 max-w-lg animate-fade-in-up">
-      <div className="flex items-center justify-between border-b pb-3 mb-3">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <span className="text-amber-500 mr-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-          </span>
-          Purchase Order #{po.po_id}
-        </h3>
-        <span className="bg-amber-100 text-amber-800 text-xs px-2 py-1 rounded-full font-semibold uppercase tracking-wider">
-          Review Needed
+    <div className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)] flex flex-col gap-3`}>
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</p>
+        <span className={`w-7 h-7 rounded-lg ${a.bg} ${a.border} border flex items-center justify-center`}>
+          {icon}
         </span>
       </div>
-
-      <div className="space-y-2 text-sm text-gray-600 mb-4">
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Supplier:</span> <span className="font-semibold text-gray-800">{po.supplier} ({po.country})</span></div>
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Quantity:</span> <span className="font-semibold text-gray-800">{po.qty} meters</span></div>
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Total Value:</span> <span className="font-semibold text-gray-800">LKR {po.total_value.toLocaleString()}</span></div>
-        
-        <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-800">
-          <p className="font-bold mb-1 flex items-center">
-            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-            Compliance Verified
-          </p>
-          <p className="text-green-700 italic">"{po.proof}"</p>
-        </div>
-      </div>
-
-      <div className="flex space-x-3 pt-2">
-        <button 
-          onClick={onApprove}
-          disabled={isLoading}
-          className="flex-1 bg-gradient-to-r from-[#d9a441] to-[#b87d39] text-white py-2 px-4 rounded-lg text-sm font-bold shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? 'Processing...' : 'Authorize PO'}
-        </button>
-        <button 
-          onClick={onReject}
-          disabled={isLoading}
-          className="flex-1 bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Reject
-        </button>
+      <div>
+        <p className={`text-3xl font-bold tracking-tight ${a.text}`}>{value}</p>
+        <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
       </div>
     </div>
   )
 }
 
-function ShipmentCard({ shipment }) {
-  return (
-    <div className="bg-white rounded-xl shadow-md border border-gray-100 p-5 mt-3 max-w-lg animate-fade-in-up">
-      <div className="flex items-center justify-between border-b pb-3 mb-3">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <span className="text-blue-500 mr-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-          </span>
-          Logistics Booked
-        </h3>
-        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-semibold uppercase tracking-wider">
-          #{shipment.shipment_id}
-        </span>
-      </div>
-
-      <div className="space-y-2 text-sm text-gray-600 mb-4">
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Carrier:</span> <span className="font-semibold text-gray-800">{shipment.carrier} ({shipment.mode.toUpperCase()})</span></div>
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Route:</span> <span className="font-semibold text-gray-800">{shipment.origin} → {shipment.destination}</span></div>
-        <div className="flex justify-between"><span className="font-medium text-gray-500">Arrival ETA:</span> <span className="font-semibold text-gray-800">{shipment.eta}</span></div>
-      </div>
-
-      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 italic border-l-4 border-l-blue-500">
-        "{shipment.summary}"
-      </div>
-    </div>
-  )
-}
-
-// ------------------------------------------------------------------
-// Main Component: Omni Copilot
-// ------------------------------------------------------------------
+const TABS = [
+  {
+    id: 'suppliers',
+    label: 'Suppliers',
+    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>,
+  },
+  {
+    id: 'purchase-orders',
+    label: 'Purchase Orders',
+    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
+  },
+  {
+    id: 'shipments',
+    label: 'Shipments',
+    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+  },
+]
 
 export default function SupplyChainPanel() {
-  const [messages, setMessages] = useState([
-    { role: 'omni', type: 'text', content: 'Hello! I am Omni, your supply chain copilot. How can I assist you with procurement today?' }
-  ])
-  const [input, setInput] = useState('')
-  const [isTyping, setIsTyping] = useState(false)
-  const [typingText, setTypingText] = useState('')
-  const messagesEndRef = useRef(null)
+  const [activeTab, setActiveTab] = useState('suppliers')
+  const [copilotOpen, setCopilotOpen] = useState(false)
+  const [prefillSupplier, setPrefillSupplier] = useState(null)
+  const [metrics, setMetrics] = useState({ suppliers: '—', pendingPos: '—', activeShipments: '—', delayed: '—' })
+  const poRefreshRef = useRef(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
+  // Load summary metrics for the hero cards
   useEffect(() => {
-    scrollToBottom()
-  }, [messages, isTyping])
+    Promise.all([
+      supplyChainApi.getSuppliers(),
+      supplyChainApi.getPurchaseOrders(),
+      supplyChainApi.getShipments(),
+    ]).then(([suppliers, pos, shipments]) => {
+      setMetrics({
+        suppliers: suppliers.length,
+        pendingPos: pos.filter(p => p.status === 'pending_approval').length,
+        activeShipments: shipments.filter(s => s.status !== 'delivered').length,
+        delayed: shipments.filter(s => s.status === 'delayed').length,
+      })
+    }).catch(() => {})
+  }, [])
 
-  // Simple NLP Parsing for demo purposes
-  const parseIntent = (text) => {
-    const t = text.toLowerCase()
-    const isCotton = t.includes('cotton') || t.includes('fabric') || t.includes('meters')
-    const isTrim = t.includes('button') || t.includes('zipper') || t.includes('trim')
-
-    let qty = 500
-    const numbers = t.match(/\d+/)
-    if (numbers) qty = parseInt(numbers[0])
-
-    if (isTrim) return { material_type: 'trim_vendor', qty, total_value: qty * 15 } // Mock calculation
-    return { material_type: 'fabric_mill', qty, total_value: qty * 260 } // Mock calculation
+  const handleRequestSupply = (supplier) => {
+    setPrefillSupplier(supplier)
+    setCopilotOpen(true)
   }
 
-  const handleSend = async (e) => {
-    e.preventDefault()
-    if (!input.trim()) return
-
-    const userMsg = input.trim()
-    setInput('')
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }])
-    
-    // Simulate thinking delay
-    setIsTyping(true)
-    setTypingText('Analyzing request...')
-    await new Promise(r => setTimeout(r, 1000))
-
-    const params = parseIntent(userMsg)
-    
-    // Check if it's a procurement request
-    if (userMsg.toLowerCase().includes('need') || userMsg.toLowerCase().includes('buy') || userMsg.toLowerCase().includes('order')) {
-      setTypingText('Searching for compliant suppliers...')
-      
-      try {
-        const payload = {
-          material_type: params.material_type,
-          requirement_id: Math.floor(Math.random() * 100) + 1,
-          qty: params.qty,
-          total_value: params.total_value,
-          compliance_keywords: ['Organic Cotton', 'Child-Labor Free'],
-          destination: 'Colombo, LK'
-        }
-
-        const result = await supplyChainApi.startPipeline(payload)
-        
-        setIsTyping(false)
-        setMessages(prev => [...prev, { 
-          role: 'omni', 
-          type: 'po_card', 
-          content: `I've found a highly-rated, fully compliant supplier and drafted the Purchase Order. Please review the details below.`,
-          data: result
-        }])
-      } catch (err) {
-        setIsTyping(false)
-        setMessages(prev => [...prev, { role: 'omni', type: 'error', content: `Error: ${err.message}` }])
-      }
-    } else {
-      setIsTyping(false)
-      setMessages(prev => [...prev, { role: 'omni', type: 'text', content: "I can help you procure materials. Try asking me something like: 'We need 500 meters of organic cotton fabric.'" }])
-    }
-  }
-
-  const handleApprove = async (runId) => {
-    setIsTyping(true)
-    setTypingText('Authorizing PO and booking logistics...')
-    
-    // Optimistically hide the card's buttons
-    setMessages(prev => prev.map(m => 
-      (m.type === 'po_card' && m.data.run_id === runId) 
-        ? { ...m, type: 'po_card_approved' } 
-        : m
-    ))
-
-    try {
-      const result = await supplyChainApi.approvePo(runId, 'System Admin')
-      
-      setIsTyping(false)
-      setMessages(prev => [...prev, { 
-        role: 'omni', 
-        type: 'shipment_card', 
-        content: `Purchase Order authorized! I've gone ahead and booked the logistics.`,
-        data: result
-      }])
-    } catch (err) {
-      setIsTyping(false)
-      setMessages(prev => [...prev, { role: 'omni', type: 'error', content: `Logistics Error: ${err.message}` }])
-    }
-  }
-
-  const handleReject = async (runId) => {
-    setIsTyping(true)
-    setTypingText('Cancelling pipeline...')
-    
-    setMessages(prev => prev.map(m => 
-      (m.type === 'po_card' && m.data.run_id === runId) 
-        ? { ...m, type: 'po_card_rejected' } 
-        : m
-    ))
-
-    try {
-      await supplyChainApi.rejectPo(runId)
-      setIsTyping(false)
-      setMessages(prev => [...prev, { role: 'omni', type: 'text', content: `The Purchase Order has been cancelled. Let me know if you need anything else.` }])
-    } catch (err) {
-      setIsTyping(false)
-      setMessages(prev => [...prev, { role: 'omni', type: 'error', content: `Cancellation Error: ${err.message}` }])
-    }
+  const handlePipelineComplete = () => {
+    setActiveTab('purchase-orders')
+    if (poRefreshRef.current) poRefreshRef.current()
+    // Reload metrics
+    Promise.all([supplyChainApi.getPurchaseOrders(), supplyChainApi.getShipments()])
+      .then(([pos, shipments]) => {
+        setMetrics(m => ({
+          ...m,
+          pendingPos: pos.filter(p => p.status === 'pending_approval').length,
+          activeShipments: shipments.filter(s => s.status !== 'delivered').length,
+          delayed: shipments.filter(s => s.status === 'delayed').length,
+        }))
+      }).catch(() => {})
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#f5f1ea] font-sans relative overflow-hidden">
-      
-      {/* Header */}
-      <div className="flex-shrink-0 px-8 py-6 border-b border-gray-200 bg-white/50 backdrop-blur-sm z-10">
-        <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Omni Procurement Copilot</h1>
-        <p className="text-sm text-gray-500 mt-1">AI-assisted sourcing, purchasing, and logistics management.</p>
-      </div>
+    <div className="flex flex-col h-full bg-[#f5f1ea] overflow-y-auto">
 
-      {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto p-8 space-y-6">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            
-            {msg.role === 'omni' && (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex items-center justify-center text-white font-bold text-sm shadow-md mr-3 flex-shrink-0 mt-1">
-                O
-              </div>
-            )}
+      {/* ── Hero Banner ── matches Dashboard's dark gradient banner */}
+      <div className="flex-shrink-0 px-8 pt-8">
 
-            <div className={`max-w-[75%] ${msg.role === 'user' ? 'bg-[#1a2430] text-white rounded-2xl rounded-tr-sm px-5 py-3 shadow-sm' : ''}`}>
-              
-              {/* Text Content */}
-              {msg.role === 'user' ? (
-                <p className="text-[15px] leading-relaxed">{msg.content}</p>
-              ) : (
-                <div className="text-[15px] text-gray-800 leading-relaxed pt-1">
-                  {msg.content}
-                </div>
-              )}
+        {/* Status pill */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3]">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+            Procurement live
+          </span>
+        </div>
 
-              {/* Dynamic Business Cards */}
-              {msg.type === 'po_card' && (
-                <PurchaseOrderCard 
-                  po={msg.data} 
-                  onApprove={() => handleApprove(msg.data.run_id)} 
-                  onReject={() => handleReject(msg.data.run_id)} 
-                  isLoading={isTyping}
-                />
-              )}
-
-              {msg.type === 'po_card_approved' && (
-                <div className="mt-3 p-3 border border-green-200 bg-green-50 rounded-lg text-sm text-green-800 font-medium inline-block">
-                  ✓ Purchase Order #{msg.data.po_id} Authorized
-                </div>
-              )}
-
-              {msg.type === 'po_card_rejected' && (
-                <div className="mt-3 p-3 border border-red-200 bg-red-50 rounded-lg text-sm text-red-800 font-medium inline-block">
-                  ✗ Purchase Order Cancelled
-                </div>
-              )}
-
-              {msg.type === 'shipment_card' && (
-                <ShipmentCard shipment={msg.data} />
-              )}
-
-              {msg.type === 'error' && (
-                <div className="mt-2 p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm">
-                  {msg.content}
-                </div>
-              )}
-
-            </div>
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Supply chain overview</h1>
+            <p className="text-sm text-[#86612b] mt-2">
+              Supplier sourcing, purchase orders, and freight logistics · powered by Omni agents
+            </p>
           </div>
-        ))}
-
-        {/* Loading Indicator */}
-        {isTyping && (
-          <div className="flex justify-start items-center">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex items-center justify-center text-white font-bold text-sm shadow-md mr-3 flex-shrink-0">
-              O
-            </div>
-            <div className="text-sm text-gray-500 flex items-center font-medium animate-pulse-slow">
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-[#d9a441]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              {typingText}
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Area */}
-      <div className="p-6 bg-white border-t border-gray-200">
-        <form onSubmit={handleSend} className="relative max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={isTyping}
-            placeholder="E.g., 'We need 500 meters of organic cotton fabric for the summer line...'"
-            className="w-full bg-[#f8f9fa] border border-gray-300 text-gray-800 text-[15px] rounded-full pl-6 pr-14 py-4 focus:outline-none focus:border-[#d9a441] focus:ring-1 focus:ring-[#d9a441] shadow-sm transition-all disabled:opacity-50"
-          />
           <button
-            type="submit"
-            disabled={isTyping || !input.trim()}
-            className="absolute right-2 top-2 bottom-2 w-10 h-10 bg-[#1a2430] text-white rounded-full flex items-center justify-center hover:bg-[#2c3e50] transition-colors disabled:opacity-50 disabled:hover:bg-[#1a2430]"
+            onClick={() => { setPrefillSupplier(null); setCopilotOpen(true) }}
+            className="flex items-center gap-2 bg-[#1a2430] text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-md hover:bg-[#2c3e50] transition-colors"
           >
-            <svg className="w-5 h-5 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+            </svg>
+            New Request
           </button>
-        </form>
-        <div className="text-center mt-3 text-xs text-gray-400 font-medium">
-          Omni AI Procurement & Logistics Agent · Beta Version
+        </div>
+
+        {/* Dark gradient hero — same style as dashboard's production pulse */}
+        <div className="rounded-2xl border border-[#e7dcc7] bg-gradient-to-r from-[#1f3a36] via-[#2d4a46] to-[#2e3d4f] p-5 text-white shadow-[0_18px_40px_rgba(31,58,54,0.18)] mb-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[#d7c9ae]">Procurement pulse</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+                {metrics.pendingPos > 0
+                  ? `${metrics.pendingPos} purchase order${metrics.pendingPos > 1 ? 's' : ''} awaiting your approval`
+                  : 'All purchase orders are up to date'}
+              </h2>
+              <p className="text-sm text-white/60 mt-1">
+                {metrics.suppliers} active suppliers · {metrics.activeShipments} shipments in transit
+                {metrics.delayed > 0 && <span className="text-orange-300"> · {metrics.delayed} delayed</span>}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-white/10 px-4 py-2 text-right">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d7c9ae]">Suppliers</div>
+                <div className="mt-1 text-lg font-semibold">{metrics.suppliers}</div>
+              </div>
+              <div className="rounded-xl bg-emerald-500/20 px-4 py-2 text-right border border-emerald-300/20">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-100">Active ships</div>
+                <div className="mt-1 text-lg font-semibold">{metrics.activeShipments}</div>
+              </div>
+              {metrics.delayed > 0 && (
+                <div className="rounded-xl bg-orange-500/20 px-4 py-2 text-right border border-orange-300/20">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-orange-200">Delayed</div>
+                  <div className="mt-1 text-lg font-semibold">{metrics.delayed}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Metric cards row — same pattern as dashboard */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+          <MetricCard
+            title="Supplier network"
+            value={metrics.suppliers}
+            subtitle="ERP-registered vendors"
+            accent="amber"
+            icon={<svg className="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" /></svg>}
+          />
+          <MetricCard
+            title="Pending approvals"
+            value={metrics.pendingPos}
+            subtitle="POs awaiting sign-off"
+            accent="orange"
+            icon={<svg className="w-3.5 h-3.5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+          />
+          <MetricCard
+            title="Active shipments"
+            value={metrics.activeShipments}
+            subtitle="In-transit logistics"
+            accent="blue"
+            icon={<svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>}
+          />
+          <MetricCard
+            title="Shipment delays"
+            value={metrics.delayed}
+            subtitle="Requiring attention"
+            accent={metrics.delayed > 0 ? 'orange' : 'green'}
+            icon={<svg className="w-3.5 h-3.5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+          />
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex items-center border-b border-slate-200 gap-1">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all -mb-px ${
+                activeTab === tab.id
+                  ? 'border-[#d9a441] text-[#1a2430]'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* ── Tab Content ── */}
+      <div className="flex-1 px-8 py-6">
+        {activeTab === 'suppliers' && (
+          <SuppliersTab onRequestSupply={handleRequestSupply} />
+        )}
+        {activeTab === 'purchase-orders' && (
+          <PurchaseOrdersTab onRefresh={fn => { poRefreshRef.current = fn }} />
+        )}
+        {activeTab === 'shipments' && (
+          <ShipmentsTab />
+        )}
+      </div>
+
+      {/* ── Floating Copilot ── */}
+      <CopilotChat
+        isOpen={copilotOpen}
+        onClose={() => { setCopilotOpen(false); setPrefillSupplier(null) }}
+        onPipelineComplete={handlePipelineComplete}
+        prefillSupplier={prefillSupplier}
+      />
+
+      {!copilotOpen && (
+        <button
+          onClick={() => { setPrefillSupplier(null); setCopilotOpen(true) }}
+          className="fixed bottom-6 right-6 z-30 w-14 h-14 bg-gradient-to-br from-[#d9a441] to-[#b87d39] text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
+          title="Open Omni Copilot"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

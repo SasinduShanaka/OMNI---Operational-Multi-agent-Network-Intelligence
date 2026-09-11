@@ -6,9 +6,7 @@ export const supplyChainApi = {
     try {
       const response = await fetch(`${API_BASE_URL}/run`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
       if (!response.ok) {
@@ -27,9 +25,7 @@ export const supplyChainApi = {
     try {
       const response = await fetch(`${API_BASE_URL}/approve/${runId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved_by: approvedBy }),
       })
       if (!response.ok) {
@@ -48,9 +44,7 @@ export const supplyChainApi = {
     try {
       const response = await fetch(`${API_BASE_URL}/reject/${runId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       })
       if (!response.ok) {
         const errorData = await response.json()
@@ -63,15 +57,10 @@ export const supplyChainApi = {
     }
   },
 
-  // Track an active shipment
+  // Track an active shipment (calls the AI tracking agent)
   trackShipment: async (shipmentId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/track/${shipmentId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
+      const response = await fetch(`${API_BASE_URL}/track/${shipmentId}`)
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.detail || 'Failed to track shipment')
@@ -81,5 +70,30 @@ export const supplyChainApi = {
       console.error('Error tracking shipment:', error)
       throw error
     }
-  }
+  },
+
+  // ----------------------------------------------------------------
+  // Data listing endpoints (direct database reads)
+  // ----------------------------------------------------------------
+
+  // Get all suppliers from mock-erp.db
+  getSuppliers: async () => {
+    const response = await fetch(`${API_BASE_URL}/suppliers`)
+    if (!response.ok) throw new Error('Failed to fetch suppliers')
+    return response.json()
+  },
+
+  // Get all purchase orders with supplier + production plan details
+  getPurchaseOrders: async () => {
+    const response = await fetch(`${API_BASE_URL}/purchase-orders`)
+    if (!response.ok) throw new Error('Failed to fetch purchase orders')
+    return response.json()
+  },
+
+  // Get all shipments with carrier details from mock-tms.db
+  getShipments: async () => {
+    const response = await fetch(`${API_BASE_URL}/shipments`)
+    if (!response.ok) throw new Error('Failed to fetch shipments')
+    return response.json()
+  },
 }
