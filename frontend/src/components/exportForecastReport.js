@@ -1,7 +1,7 @@
-const number = (value) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 1 })
+const number = (value) => value == null ? 'N/A' : Number(value).toLocaleString('en-US', { maximumFractionDigits: 1 })
 const month = (value) => new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 
-// Vector text and chart remain sharp at any zoom; all horizons fit one A4 page.
+// One-page A4 summary with vector text and a compact demand chart.
 export async function createForecastPdf(result) {
   const { jsPDF } = await import('jspdf')
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true })
@@ -40,8 +40,9 @@ export async function createForecastPdf(result) {
   text(`${result.predictions.length} months`, 147, 70, 17, '#ffffff', true)
   text(`${result.trend} trend`, 147, 77, 7, '#cae3d8')
   const total = result.predictions.reduce((sum, point) => sum + point.quantity, 0)
-  const accuracy = result.accuracy
-  const metrics = [['HORIZON TOTAL', number(total), 'projected units'], ['BACKTEST MAPE', `${number(accuracy.mape_percent)}%`, 'lower error is better'], ['VALIDATION', String(accuracy.test_points), 'historical predictions']]
+  const accuracy = result.accuracy || {}
+  const percent = (value) => value == null ? 'N/A' : `${number(value)}%`
+  const metrics = [['HORIZON TOTAL', number(total), 'projected units'], ['ACCURACY SCORE', percent(accuracy.accuracy_percent), 'derived from 100 - WAPE'], ['FORECAST ERROR / WAPE', percent(accuracy.wape_percent), 'lower error is better']]
   metrics.forEach(([label, value, detail], index) => {
     const x = 14 + index * 62
     box(x, 85, 58, 22, '#f0f6f2')
@@ -97,12 +98,25 @@ export async function createForecastPdf(result) {
   text('Total planned demand', 17, tableEnd + 5, 7.5, green, true)
   text(number(total), 193, tableEnd + 5, 7.5, green, true, { align: 'right' })
   const notesY = tableEnd + 13
-  text('03 / Model & validation', 14, notesY, 10, green, true)
-  box(14, notesY + 3, 182, 19, '#f3f6f3')
-  text("Holt's linear trend model", 18, notesY + 8, 7.5, green, true)
-  text(`Alpha ${result.smoothing_parameters.alpha} | Beta ${result.smoothing_parameters.beta}`, 18, notesY + 13, 6.5, muted)
-  text(`RMSE ${number(accuracy.rmse)} | MAE ${number(accuracy.mae)} units`, 18, notesY + 18, 6.5, muted)
-  paragraph(`Backtests measure past error, not future certainty. MAPE excludes zero actuals.${accuracy.test_points < 6 ? ' Limited validation history: preliminary metrics.' : ''}`, 108, notesY + 8, 83, 6.5)
+  text('03 / Data quality', 14, notesY, 10, green, true)
+  text('04 / Demand history', 108, notesY, 10, green, true)
+  box(14, notesY + 3, 88, 24, '#f3f6f3')
+  box(108, notesY + 3, 88, 24, '#f3f6f3')
+  const quality = result.data_quality
+  const qualityLabels = { passed: 'Checks passed', needs_review: 'Needs review', blocked: 'Forecast blocked' }
+  text(quality ? qualityLabels[quality.status] || quality.status : 'Quality information unavailable', 18, notesY + 8, 7, green, true)
+  text(`Checked: ${number(quality?.records_checked)} | Usable: ${number(quality?.valid_records)}`, 18, notesY + 13, 6.5, muted)
+  text(`Excluded: ${number(quality?.invalid_records)} | Usable months: ${number(quality?.usable_months)}`, 18, notesY + 18, 6.5, muted)
+  text(quality ? `${quality.issues?.length ?? 0} issues | ${quality.can_forecast ? 'Enough history to forecast' : 'Review required'}` : 'Run a data quality check for details.', 18, notesY + 23, 6.5, muted)
+  text(`${month(result.history_start)} - ${month(result.history_end)} | ${result.history_points} months`, 112, notesY + 8, 6.5, green, true)
+  text(`Average: ${number(result.average_historical_demand)} units/month`, 112, notesY + 12, 6.5, muted)
+  const recentHistory = result.history.slice(-3)
+  text(`Latest ${recentHistory.length} recorded months`, 112, notesY + 16, 6, muted)
+  recentHistory.forEach((point, index) => {
+    const left = 112 + index * 27
+    text(month(point.date), left, notesY + 20, 6, muted)
+    text(`${number(point.quantity)} units`, left, notesY + 24, 6, green, true)
+  })
   rule(285)
   text('OMNI | Source: MongoDB demand history', 14, 290, 6.5, muted)
   text(`${result.sku} | 1 / 1`, 196, 290, 6.5, muted, false, { align: 'right' })

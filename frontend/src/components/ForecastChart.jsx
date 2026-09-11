@@ -55,7 +55,7 @@ export default function ForecastChart({ history, predictions }) {
       </div>
 
       <div className="overflow-x-auto rounded-xl" tabIndex={0} role="region" aria-label="Demand chart. Scroll horizontally on small screens.">
-        <svg viewBox={`0 0 ${width} 330`} className="block w-full min-w-[580px]" role="group" aria-labelledby={`${gradient}-title ${gradient}-description`}>
+        <svg viewBox={`0 0 ${width} 330`} className="block w-full min-w-[580px] max-h-[330px]" role="group" aria-labelledby={`${gradient}-title ${gradient}-description`}>
           <title id={`${gradient}-title`}>Actual demand and Holt forecast</title>
           <desc id={`${gradient}-description`}>Solid emerald line shows history; dashed amber line shows projected demand. Focus a point for its month and quantity. The shaded forecast area marks future months, not a confidence interval.</desc>
           <defs>

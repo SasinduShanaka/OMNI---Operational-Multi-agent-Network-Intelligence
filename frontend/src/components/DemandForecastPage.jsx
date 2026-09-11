@@ -46,7 +46,7 @@ function DemandForecastPage({ setActivePage }) {
           setIsLoading(false)
           return
         }
-        const initialSku = data.products.find((product) => product.sku === 'GAR-003')?.sku || data.products[0].sku
+        const initialSku = data.products.find((product) => product.sku === 'GAR-001')?.sku || data.products[0].sku
         setSku(initialSku)
         await requestForecast(initialSku, 3)
       } catch (requestError) {

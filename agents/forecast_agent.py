@@ -175,7 +175,10 @@ def forecast_demand(sku: str, periods: int = 1, save_audit: bool = True) -> dict
             "level": round(level, 2),
             "trend": round(slope, 2),
         },
-        "accuracy": _backtest_accuracy(quantities),
+        "accuracy": _backtest_accuracy(
+            [row["quantity"] for row in history if row["date"] < datetime.now(timezone.utc).date().replace(day=1)],
+            [row["date"] for row in history if row["date"] < datetime.now(timezone.utc).date().replace(day=1)],
+        ),
         "recommendation": _recommendation(trend, predictions[0]["quantity"]),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -195,7 +198,7 @@ def forecast_all_demand(periods: int = 1, save_audit: bool = True) -> list[dict[
     return [result for sku in skus if (result := forecast_demand(sku, periods, save_audit))["status"] == "success"]
 
 
-def _backtest_accuracy(values: list[float]) -> dict[str, float | int | str]:
+def _backtest_accuracy(values: list[float], dates=None) -> dict[str, Any]:
     """Expanding-window one-step backtest; positive bias means overforecasting."""
     actuals, predictions = [], []
     for index in range(2, len(values)):
@@ -203,18 +206,25 @@ def _backtest_accuracy(values: list[float]) -> dict[str, float | int | str]:
         actuals.append(values[index])
         predictions.append(max(0, level + trend))
     errors = [prediction - actual for prediction, actual in zip(predictions, actuals)]
-    mae = sum(abs(error) for error in errors) / len(errors)
-    rmse = math.sqrt(sum(error ** 2 for error in errors) / len(errors))
+    mae = sum(abs(error) for error in errors) / len(errors) if errors else None
+    rmse = math.sqrt(sum(error ** 2 for error in errors) / len(errors)) if errors else None
     percentage_errors = [abs(error / actual) for error, actual in zip(errors, actuals) if actual]
-    mape = 100 * sum(percentage_errors) / len(percentage_errors) if percentage_errors else 0.0
+    mape = 100 * sum(percentage_errors) / len(percentage_errors) if percentage_errors else None
+    wape = 100 * sum(abs(error) for error in errors) / sum(actuals) if sum(actuals) else None
     return {
         "method": "rolling one-step backtest",
         "test_points": len(actuals),
-        "mae": round(mae, 2),
-        "rmse": round(rmse, 2),
-        "mape_percent": round(mape, 2),
-        "accuracy_percent": round(max(0.0, 100.0 - mape), 2),
-        "bias": round(sum(errors) / len(errors), 2),
+        "mae": round(mae, 2) if mae is not None else None,
+        "rmse": round(rmse, 2) if rmse is not None else None,
+        "mape_percent": round(mape, 2) if mape is not None else None,
+        "wape_percent": round(wape, 2) if wape is not None else None,
+        "accuracy_percent": round(max(0.0, 100.0 - wape), 2) if wape is not None else None,
+        "accuracy_basis": "max(0, 100 - WAPE)",
+        "bias": round(sum(errors) / len(errors), 2) if errors else None,
+        "comparisons": [{"date": dates[index + 2].isoformat() if dates else None,
+                         "actual": actual, "forecast": round(prediction, 2),
+                         "absolute_error": round(abs(prediction - actual), 2)}
+                        for index, (actual, prediction) in enumerate(zip(actuals, predictions))],
     }
 
 

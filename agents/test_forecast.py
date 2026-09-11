@@ -1,5 +1,6 @@
 from datetime import datetime
 import unittest
+from unittest.mock import patch
 
 from agents import forecast_agent
 
@@ -61,6 +62,37 @@ class DemandForecastAgentTests(unittest.TestCase):
 
         self.assertEqual(len(result["predictions"]), 3)
         self.assertEqual(result["predictions"][-1], {"date": "2026-06-01", "quantity": 1000.0})
+
+    def test_accuracy_uses_weighted_error_and_prior_history_only(self):
+        with patch.object(forecast_agent, '_fit_holt', return_value=(100, 0, 0.5, 0.5)) as fit:
+            accuracy = forecast_agent._backtest_accuracy([50, 75, 80, 120])
+        self.assertEqual([call.args[0] for call in fit.call_args_list], [[50, 75], [50, 75, 80]])
+        self.assertEqual(accuracy['wape_percent'], 20)
+        self.assertEqual(accuracy['accuracy_percent'], 80)
+        self.assertEqual(accuracy['mae'], 20)
+
+    def test_accuracy_handles_zero_demand_and_insufficient_history(self):
+        accuracy = forecast_agent._backtest_accuracy([100, 100, 0])
+        self.assertIsNone(accuracy['wape_percent'])
+        self.assertIsNone(accuracy['accuracy_percent'])
+        self.assertIsNone(accuracy['mape_percent'])
+        self.assertEqual(accuracy['mae'], 100)
+        empty = forecast_agent._backtest_accuracy([100, 100])
+        self.assertEqual(empty['test_points'], 0)
+        self.assertIsNone(empty['mae'])
+
+    def test_accuracy_excludes_current_and_future_months(self):
+        with patch.object(forecast_agent, 'datetime') as clock:
+            clock.now.return_value = datetime(2026, 3, 15)
+            clock.side_effect = datetime
+            # Use date values so parsing does not depend on the mocked datetime type.
+            with patch.object(forecast_agent, '_read_demand_snapshot', return_value=(
+                [{'date': datetime(2026, m, 1).date(), 'quantity': 100} for m in range(1, 5)],
+                {'can_forecast': True},
+            )):
+                result = forecast_agent.forecast_demand('GAR-003', save_audit=False)
+        self.assertEqual(result['accuracy']['test_points'], 0)
+        self.assertEqual(result['accuracy']['comparisons'], [])
 
     def test_holt_model_reacts_to_recent_demand(self):
         forecast_agent.demand_collection.records.extend([
