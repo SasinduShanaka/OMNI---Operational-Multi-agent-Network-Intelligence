@@ -352,6 +352,9 @@ function AgentResponse({ data, setActivePage, setScQuery }) {
 
       {data.intent === 'procurement' && data.data && (
         <OmniProcurementCard data={data.data} />
+      )}
+
+      {/* ======================================================
           DEMAND FORECAST
       ====================================================== */}
 
@@ -1163,3 +1166,6 @@ function formatStatus(status) {
 
 /* ============================================================
    OMNI PROCUREMENT CARD
+============================================================ */
+
+export default OperationsAgent
