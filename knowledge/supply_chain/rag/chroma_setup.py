@@ -15,9 +15,9 @@ from pathlib import Path
 # Paths
 # ------------------------------------------------------------------
 
-RAG_DIR      = Path(__file__).parent
-CONTRACTS_DIR = RAG_DIR.parent / "contracts"
-CHROMA_DIR   = RAG_DIR / "chroma_store"
+RAG_DIR       = Path(__file__).parent
+CONTRACTS_DIR = RAG_DIR / "pdfs"
+CHROMA_DIR    = RAG_DIR / "chroma_store"
 
 # ------------------------------------------------------------------
 # PDF → Text extraction
@@ -34,9 +34,11 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 # ------------------------------------------------------------------
 
 CONTRACT_SUPPLIER_MAP = {
-    "ecoweave_contract.pdf":       "EcoWeave Bangladesh",
-    "textiles_lanka_contract.pdf": "Textiles Lanka",
-    "zipper_king_contract.pdf":    "Zipper King China",
+    "EcoWeave_Bangladesh_Contract.pdf":    "EcoWeave Bangladesh",
+    "Textiles_Lanka_Contract.pdf":         "Textiles Lanka",
+    "Cotton_World_India_Contract.pdf":     "Cotton World India",
+    "Zipper_King_China_Contract.pdf":      "Zipper King China",
+    "ColorDye_House_SriLanka_Contract.pdf": "ColorDye House Sri Lanka",
 }
 
 

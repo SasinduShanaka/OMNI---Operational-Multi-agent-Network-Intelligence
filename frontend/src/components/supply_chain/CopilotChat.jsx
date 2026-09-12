@@ -1,34 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { supplyChainApi } from '../../api/supplyChainApi'
 
-// Parse natural language into a supply chain payload
-function parseIntent(text) {
-  const t = text.toLowerCase()
-  const isTrim = t.includes('button') || t.includes('zipper') || t.includes('trim') || t.includes('accessory')
-  const isDye = t.includes('dye') || t.includes('color') || t.includes('colour')
-  let material_type = 'fabric_mill'
-  if (isTrim) material_type = 'trim_vendor'
-  if (isDye) material_type = 'dye_house'
-  const numbers = t.match(/\d+/)
-  const qty = numbers ? parseInt(numbers[0]) : 300
-  const total_value = material_type === 'trim_vendor' ? qty * 15 : qty * 260
-  return { material_type, qty, total_value }
-}
-
-// Map material type → requirement_id that actually exists in production_plan
-// production_plan IDs: 1=Cotton Twill, 2=Organic Cotton, 3=Fleece, 4=YKK Zipper, 5=Navy Dye
-function getRequirementId(material_type) {
-  if (material_type === 'trim_vendor') return 4   // YKK Zipper 15cm
-  if (material_type === 'dye_house')   return 5   // Navy Blue Reactive Dye
-  return 2                                        // Organic Cotton 180gsm (default for fabric_mill)
-}
-
 function isSupplyRequest(text) {
   const t = text.toLowerCase()
   return t.includes('need') || t.includes('buy') || t.includes('order') || t.includes('get') || t.includes('source')
 }
 
-export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefillSupplier }) {
+export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefillSupplier, prefillQuery, clearQuery }) {
   const [messages, setMessages] = useState([
     { role: 'omni', type: 'text', content: 'Hi! I am your procurement assistant. Tell me what materials you need — for example: "I need 400 meters of organic cotton for our SS26 line."' }
   ])
@@ -44,17 +22,25 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
     }
   }, [prefillSupplier, isOpen])
 
+  // Pre-fill and auto-send if opened from operations routing
+  useEffect(() => {
+    if (prefillQuery && isOpen && !isTyping) {
+      // Simulate typing and submit the query directly via handleSend
+      const mockEvent = { preventDefault: () => {} };
+      
+      // We must bypass state input so we pass it directly to handleSend equivalent
+      submitQuery(prefillQuery);
+      
+      if (clearQuery) clearQuery();
+    }
+  }, [prefillQuery, isOpen])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
-  const handleSend = async (e) => {
-    e.preventDefault()
-    if (!input.trim()) return
-    const userMsg = input.trim()
-    setInput('')
+  const submitQuery = async (userMsg) => {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
-
     setIsTyping(true)
     setTypingText('Analyzing request...')
     await new Promise(r => setTimeout(r, 800))
@@ -68,21 +54,19 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       return
     }
 
-    const params = parseIntent(userMsg)
-    setTypingText('Searching for compliant suppliers...')
+    setTypingText('Analyzing request with Agent...')
 
     try {
-      const payload = {
-        material_type: params.material_type,
-        requirement_id: getRequirementId(params.material_type),
-        qty: params.qty,
-        total_value: params.total_value,
-        compliance_keywords: ['Organic Cotton', 'Child-Labor Free'],
-        destination: 'Colombo, LK'
-      }
+      const result = await supplyChainApi.chatPipeline({ message: userMsg })
 
-      setTypingText('Verifying compliance & drafting PO...')
-      const result = await supplyChainApi.startPipeline(payload)
+      if (result.status === 'unrelated') {
+        setIsTyping(false)
+        setMessages(prev => [...prev, {
+          role: 'omni', type: 'text',
+          content: result.message
+        }])
+        return
+      }
 
       setIsTyping(false)
       setMessages(prev => [...prev, {
@@ -95,6 +79,14 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       setIsTyping(false)
       setMessages(prev => [...prev, { role: 'omni', type: 'error', content: `Error: ${err.message}` }])
     }
+  }
+
+  const handleSend = async (e) => {
+    e.preventDefault()
+    if (!input.trim()) return
+    const userMsg = input.trim()
+    setInput('')
+    submitQuery(userMsg)
   }
 
   const handleApprove = async (runId, poId) => {
@@ -163,13 +155,13 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
               {msg.type === 'po_card' && (
                 <div className="mt-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-sm">
                   <div className="space-y-1.5 mb-3">
-                    <div className="flex justify-between"><span className="text-gray-500">Supplier</span><span className="font-semibold text-gray-800">{msg.data.supplier}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">PO #</span><span className="font-mono font-semibold text-gray-800">#{msg.data.po_id}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500">Value</span><span className="font-semibold text-gray-800">LKR {msg.data.total_value?.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Supplier</span><span className="font-semibold text-gray-800">{msg.data.supplier?.supplier_name}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">PO #</span><span className="font-mono font-semibold text-gray-800">#{msg.data.po?.po_id}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Value</span><span className="font-semibold text-gray-800">LKR {msg.data.po?.total_value?.toLocaleString()}</span></div>
                     <div className="mt-2 p-2 bg-green-50 rounded-lg text-xs text-green-700 border border-green-100">✓ Compliance verified</div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => handleApprove(msg.data.run_id, msg.data.po_id)} disabled={isTyping} className="flex-1 bg-gradient-to-r from-[#d9a441] to-[#b87d39] text-white text-xs font-bold py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">Authorize</button>
+                    <button onClick={() => handleApprove(msg.data.run_id, msg.data.po?.po_id)} disabled={isTyping} className="flex-1 bg-gradient-to-r from-[#d9a441] to-[#b87d39] text-white text-xs font-bold py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">Authorize</button>
                     <button onClick={() => handleReject(msg.data.run_id)} disabled={isTyping} className="flex-1 border border-gray-300 text-gray-700 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50">Reject</button>
                   </div>
                 </div>
@@ -183,10 +175,10 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
 
               {msg.type === 'shipment_card' && (
                 <div className="mt-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-sm space-y-1.5">
-                  <div className="flex justify-between"><span className="text-gray-500">Shipment</span><span className="font-mono font-semibold text-gray-800">#{msg.data.shipment_id}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Carrier</span><span className="font-semibold text-gray-800">{msg.data.carrier}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">ETA</span><span className="font-semibold text-gray-800">{msg.data.eta}</span></div>
-                  <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-800 italic border border-blue-100">"{msg.data.summary}"</div>
+                  <div className="flex justify-between"><span className="text-gray-500">Shipment</span><span className="font-mono font-semibold text-gray-800">#{msg.data.shipment?.shipment_id}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Carrier</span><span className="font-semibold text-gray-800">{msg.data.shipment?.carrier}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">ETA</span><span className="font-semibold text-gray-800">{msg.data.shipment?.eta}</span></div>
+                  <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-800 italic border border-blue-100">"{msg.data.shipment?.summary}"</div>
                 </div>
               )}
 

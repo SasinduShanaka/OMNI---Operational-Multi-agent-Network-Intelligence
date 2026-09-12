@@ -22,37 +22,17 @@ function StatusBadge({ status }) {
   )
 }
 
-export default function PurchaseOrdersTab({ onRefresh }) {
-  const [orders, setOrders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+export default function PurchaseOrdersTab({ orders, onUpdate }) {
   const [actionLoading, setActionLoading] = useState(null) // po_id being actioned
   const [statusFilter, setStatusFilter] = useState('all')
 
-  const fetchOrders = useCallback(() => {
-    setLoading(true)
-    supplyChainApi.getPurchaseOrders()
-      .then(data => { setOrders(data); setLoading(false) })
-      .catch(e => { setError(e.message); setLoading(false) })
-  }, [])
-
-  useEffect(() => { fetchOrders() }, [fetchOrders])
-
-  // Expose refresh to parent via prop
-  useEffect(() => {
-    if (onRefresh) onRefresh(fetchOrders)
-  }, [onRefresh, fetchOrders])
-
   const handleApprove = async (po) => {
-    // Note: These POs from the data list don't have a run_id (they were seeded directly).
-    // We call approve_po directly via the ERP endpoint for data-table POs.
     setActionLoading(po.po_id)
     try {
-      // For directly seeded POs, we patch the DB directly via a special endpoint.
-      // Since we only have the pipeline approve endpoint, we update status in UI optimistically.
-      setOrders(prev => prev.map(o =>
-        o.po_id === po.po_id ? { ...o, status: 'approved', approved_by: 'Human Manager' } : o
-      ))
+      await supplyChainApi.manualApprovePo(po.po_id)
+      if (onUpdate) onUpdate()
+    } catch (e) {
+      alert("Failed to approve PO: " + e.message)
     } finally {
       setActionLoading(null)
     }
@@ -61,9 +41,23 @@ export default function PurchaseOrdersTab({ onRefresh }) {
   const handleReject = async (po) => {
     setActionLoading(po.po_id)
     try {
-      setOrders(prev => prev.map(o =>
-        o.po_id === po.po_id ? { ...o, status: 'rejected' } : o
-      ))
+      await supplyChainApi.manualRejectPo(po.po_id)
+      if (onUpdate) onUpdate()
+    } catch (e) {
+      alert("Failed to reject PO: " + e.message)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleDelete = async (po) => {
+    if (!window.confirm(`Are you sure you want to delete PO #${po.po_id}?`)) return
+    setActionLoading(po.po_id)
+    try {
+      await supplyChainApi.deletePurchaseOrder(po.po_id)
+      if (onUpdate) onUpdate()
+    } catch (e) {
+      alert("Failed to delete PO: " + e.message)
     } finally {
       setActionLoading(null)
     }
@@ -71,17 +65,7 @@ export default function PurchaseOrdersTab({ onRefresh }) {
 
   const filtered = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400">
-      <svg className="animate-spin w-6 h-6 mr-2 text-amber-500" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
-      Loading purchase orders...
-    </div>
-  )
 
-  if (error) return <div className="p-6 text-red-600 bg-red-50 rounded-xl border border-red-200">Error: {error}</div>
 
   const pendingCount = orders.filter(o => o.status === 'pending_approval').length
 
@@ -112,7 +96,7 @@ export default function PurchaseOrdersTab({ onRefresh }) {
             <option value="draft">Draft</option>
           </select>
           <button
-            onClick={fetchOrders}
+            onClick={() => { if (onUpdate) onUpdate() }}
             className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-500"
             title="Refresh"
           >
@@ -158,7 +142,7 @@ export default function PurchaseOrdersTab({ onRefresh }) {
                 <td className="px-6 py-4"><StatusBadge status={po.status} /></td>
                 <td className="px-6 py-4 text-slate-400 text-xs">{po.order_date || '—'}</td>
                 <td className="px-5 py-4">
-                  {po.status === 'pending_approval' && (
+                  {po.status === 'pending_approval' ? (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleApprove(po)}
@@ -175,9 +159,19 @@ export default function PurchaseOrdersTab({ onRefresh }) {
                         Reject
                       </button>
                     </div>
-                  )}
-                  {po.status === 'approved' && po.approved_by && (
-                    <span className="text-xs text-slate-400">by {po.approved_by}</span>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      {po.status === 'approved' && po.approved_by && (
+                        <span className="text-xs text-slate-400">by {po.approved_by}</span>
+                      )}
+                      <button
+                        onClick={() => handleDelete(po)}
+                        disabled={actionLoading === po.po_id}
+                        className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>

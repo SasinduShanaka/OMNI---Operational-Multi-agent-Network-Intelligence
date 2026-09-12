@@ -7,6 +7,10 @@ for Human-in-the-Loop approval before proceeding.
 import asyncio
 import os
 import sys
+import json
+from langchain_groq import ChatGroq
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 # ------------------------------------------------------------------
 # Paths
@@ -14,8 +18,32 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MCP_DIR  = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
-
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
+
+
+# ------------------------------------------------------------------
+# LangChain Tool wrapping MCP
+# ------------------------------------------------------------------
+@tool
+async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total_value: float) -> str:
+    """Drafts a Purchase Order in the ERP system for a given supplier and requirement."""
+    from fastmcp import Client
+    async with Client(ERP_SERVER) as erp:
+        draft_result = await erp.call_tool(
+            "draft_po",
+            {
+                "supplier_id":    supplier_id,
+                "requirement_id": requirement_id,
+                "qty":            qty,
+                "total_value":    total_value,
+            }
+        )
+        
+    po_data = draft_result.data if hasattr(draft_result, "data") else draft_result
+    if isinstance(po_data, dict) and "result" in po_data:
+        po_data = po_data["result"]
+        
+    return json.dumps(po_data)
 
 
 # ------------------------------------------------------------------
@@ -32,50 +60,36 @@ async def run_purchasing_agent(
     approved_by: str = "Human Manager"
 ) -> dict | None:
     """
-    Draft a Purchase Order and wait for human approval.
-
-    Args:
-        supplier_id:     ID of the chosen supplier.
-        supplier_name:   Display name (for human-readable summary).
-        requirement_id:  ID from production_plan table.
-        qty:             Quantity to order.
-        total_value:     Total cost of the order.
-        auto_approve:    If True, skips human input (for pipeline testing).
-        approved_by:     Name to record in the PO on approval.
-
-    Returns:
-        dict with po_id and status='approved', or None if rejected.
+    Draft a Purchase Order using an LLM and wait for human approval.
     """
-    from fastmcp import Client
+    print(f"\n[Agent 2 - Purchasing] LLM deciding actions to draft Purchase Order...")
 
-    print(f"\n[Agent 2 - Purchasing] Drafting Purchase Order...")
+    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
+    llm_with_tools = llm.bind_tools([draft_po_tool])
 
-    # ------------------------------------------------------------------
-    # Step 1: Draft the PO via ERP MCP server
-    # ------------------------------------------------------------------
-    async with Client(ERP_SERVER) as erp:
-        draft_result = await erp.call_tool(
-            "draft_po",
-            {
-                "supplier_id":    supplier_id,
-                "requirement_id": requirement_id,
-                "qty":            qty,
-                "total_value":    total_value,
-            }
-        )
+    prompt = f"Please draft a purchase order for supplier_id {supplier_id} (name: {supplier_name}) for requirement_id {requirement_id} with quantity {qty} and total cost {total_value}."
 
-    po_data = draft_result.data if hasattr(draft_result, "data") else draft_result
-    if isinstance(po_data, dict) and "result" in po_data:
-        po_data = po_data["result"]
-
-    if "error" in po_data:
-        print(f"  [Agent 2] Error drafting PO: {po_data['error']}")
+    # Step 1: LLM decides to call tool
+    msg = await llm_with_tools.ainvoke([HumanMessage(content=prompt)])
+    
+    po_data = None
+    
+    if msg.tool_calls:
+        tool_call = msg.tool_calls[0]
+        print(f"  [Agent 2] LLM called tool: {tool_call['name']} with args {tool_call['args']}")
+        
+        # Step 2: Execute tool
+        tool_result = await draft_po_tool.ainvoke(tool_call['args'])
+        po_data = json.loads(tool_result)
+        
+    if not po_data or "error" in po_data:
+        print(f"  [Agent 2] Error drafting PO: {po_data.get('error', 'No data returned by LLM tool')}")
         return None
 
     po_id = po_data["po_id"]
 
     # ------------------------------------------------------------------
-    # Step 2: Human-in-the-Loop gate
+    # Step 3: Human-in-the-Loop gate
     # ------------------------------------------------------------------
     print(f"""
   +==============================================+
@@ -97,9 +111,10 @@ async def run_purchasing_agent(
         ).strip().lower()
 
     # ------------------------------------------------------------------
-    # Step 3a: Approved → call approve_po
+    # Step 4a: Approved → call approve_po
     # ------------------------------------------------------------------
     if decision == "approve":
+        from fastmcp import Client
         async with Client(ERP_SERVER) as erp:
             approve_result = await erp.call_tool(
                 "approve_po",
@@ -122,7 +137,7 @@ async def run_purchasing_agent(
         }
 
     # ------------------------------------------------------------------
-    # Step 3b: Rejected
+    # Step 4b: Rejected
     # ------------------------------------------------------------------
     else:
         print(f"\n  [Agent 2] [X] PO #{po_id} rejected. Pipeline stopped.")

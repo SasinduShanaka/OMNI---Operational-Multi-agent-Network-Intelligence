@@ -987,6 +987,8 @@ function App() {
     'dashboard'
   )
 
+  const [scQuery, setScQuery] = useState(null)
+
   const [chatState, setChatState] = useState({
     draft: '',
     messages: [],
@@ -1021,6 +1023,8 @@ function App() {
           <OperationsAgent
             chatState={chatState}
             setChatState={setChatState}
+            setActivePage={setActivePage}
+            setScQuery={setScQuery}
           />
         )
 
@@ -1037,7 +1041,7 @@ function App() {
       case 'supplier':
 
         return (
-          <SupplyChainPanel />
+          <SupplyChainPanel initialQuery={scQuery} clearQuery={() => setScQuery(null)} />
         )
 
 

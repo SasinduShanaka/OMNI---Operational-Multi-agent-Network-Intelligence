@@ -51,27 +51,51 @@ const TABS = [
   },
 ]
 
-export default function SupplyChainPanel() {
+export default function SupplyChainPanel({ initialQuery, clearQuery }) {
   const [activeTab, setActiveTab] = useState('suppliers')
   const [copilotOpen, setCopilotOpen] = useState(false)
   const [prefillSupplier, setPrefillSupplier] = useState(null)
-  const [metrics, setMetrics] = useState({ suppliers: '—', pendingPos: '—', activeShipments: '—', delayed: '—' })
-  const poRefreshRef = useRef(null)
+  
+  // Global Data State
+  const [suppliersData, setSuppliersData] = useState([])
+  const [posData, setPosData] = useState([])
+  const [shipmentsData, setShipmentsData] = useState([])
+  const [loadingData, setLoadingData] = useState(true)
 
-  // Load summary metrics for the hero cards
-  useEffect(() => {
+  const [metrics, setMetrics] = useState({ suppliers: '—', pendingPos: '—', activeShipments: '—', delayed: '—' })
+
+  const loadAllData = () => {
     Promise.all([
       supplyChainApi.getSuppliers(),
       supplyChainApi.getPurchaseOrders(),
       supplyChainApi.getShipments(),
     ]).then(([suppliers, pos, shipments]) => {
+      setSuppliersData(suppliers)
+      setPosData(pos)
+      setShipmentsData(shipments)
       setMetrics({
         suppliers: suppliers.length,
         pendingPos: pos.filter(p => p.status === 'pending_approval').length,
         activeShipments: shipments.filter(s => s.status !== 'delivered').length,
         delayed: shipments.filter(s => s.status === 'delayed').length,
       })
-    }).catch(() => {})
+      setLoadingData(false)
+    }).catch((e) => {
+      console.error(e)
+      setLoadingData(false)
+    })
+  }
+
+  // If initialQuery comes in from operations agent routing, open copilot
+  useEffect(() => {
+    if (initialQuery) {
+      setCopilotOpen(true)
+    }
+  }, [initialQuery])
+
+  // Initial load
+  useEffect(() => {
+    loadAllData()
   }, [])
 
   const handleRequestSupply = (supplier) => {
@@ -81,17 +105,7 @@ export default function SupplyChainPanel() {
 
   const handlePipelineComplete = () => {
     setActiveTab('purchase-orders')
-    if (poRefreshRef.current) poRefreshRef.current()
-    // Reload metrics
-    Promise.all([supplyChainApi.getPurchaseOrders(), supplyChainApi.getShipments()])
-      .then(([pos, shipments]) => {
-        setMetrics(m => ({
-          ...m,
-          pendingPos: pos.filter(p => p.status === 'pending_approval').length,
-          activeShipments: shipments.filter(s => s.status !== 'delivered').length,
-          delayed: shipments.filter(s => s.status === 'delayed').length,
-        }))
-      }).catch(() => {})
+    loadAllData()
   }
 
   return (
@@ -213,14 +227,20 @@ export default function SupplyChainPanel() {
 
       {/* ── Tab Content ── */}
       <div className="flex-1 px-8 py-6">
-        {activeTab === 'suppliers' && (
-          <SuppliersTab onRequestSupply={handleRequestSupply} />
-        )}
-        {activeTab === 'purchase-orders' && (
-          <PurchaseOrdersTab onRefresh={fn => { poRefreshRef.current = fn }} />
-        )}
-        {activeTab === 'shipments' && (
-          <ShipmentsTab />
+        {loadingData ? (
+           <div className="flex items-center justify-center h-64 text-slate-400">Loading modules...</div>
+        ) : (
+          <>
+            {activeTab === 'suppliers' && (
+              <SuppliersTab suppliers={suppliersData} onUpdate={loadAllData} onRequestSupply={handleRequestSupply} />
+            )}
+            {activeTab === 'purchase-orders' && (
+              <PurchaseOrdersTab orders={posData} onUpdate={loadAllData} />
+            )}
+            {activeTab === 'shipments' && (
+              <ShipmentsTab shipments={shipmentsData} onUpdate={loadAllData} />
+            )}
+          </>
         )}
       </div>
 
@@ -230,6 +250,8 @@ export default function SupplyChainPanel() {
         onClose={() => { setCopilotOpen(false); setPrefillSupplier(null) }}
         onPipelineComplete={handlePipelineComplete}
         prefillSupplier={prefillSupplier}
+        prefillQuery={initialQuery}
+        clearQuery={clearQuery}
       />
 
       {!copilotOpen && (

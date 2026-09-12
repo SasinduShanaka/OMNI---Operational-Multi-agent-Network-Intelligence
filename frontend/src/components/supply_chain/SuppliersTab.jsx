@@ -42,18 +42,13 @@ const COUNTRY_FLAGS = {
   'Turkey': '🇹🇷', 'Pakistan': '🇵🇰', 'China': '🇨🇳',
 }
 
-export default function SuppliersTab({ onRequestSupply }) {
-  const [suppliers, setSuppliers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
-  useEffect(() => {
-    supplyChainApi.getSuppliers()
-      .then(data => { setSuppliers(data); setLoading(false) })
-      .catch(e => { setError(e.message); setLoading(false) })
-  }, [])
+  // Edit state
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({})
 
   const filtered = suppliers.filter(s => {
     const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -62,21 +57,36 @@ export default function SuppliersTab({ onRequestSupply }) {
     return matchSearch && matchFilter
   })
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64 text-slate-400">
-      <svg className="animate-spin w-5 h-5 mr-2 text-amber-500" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
-      Loading supplier directory...
-    </div>
-  )
+  const handleEditClick = (s) => {
+    setEditingId(s.supplier_id)
+    setEditForm({
+      category: s.category,
+      rating: s.rating,
+      lead_time_days: s.lead_time_days
+    })
+  }
 
-  if (error) return (
-    <div className="p-5 bg-red-50 text-red-700 rounded-2xl border border-red-200 text-sm">
-      Error loading suppliers: {error}
-    </div>
-  )
+  const handleSaveEdit = async (id) => {
+    try {
+      await supplyChainApi.updateSupplier(id, editForm)
+      if (onUpdate) onUpdate()
+      setEditingId(null)
+    } catch (err) {
+      alert('Failed to update supplier: ' + err.message)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this supplier?')) return
+    try {
+      await supplyChainApi.deleteSupplier(id)
+      if (onUpdate) onUpdate()
+    } catch (err) {
+      alert('Failed to delete supplier: ' + err.message)
+    }
+  }
+
+
 
   return (
     <div>
@@ -127,6 +137,8 @@ export default function SuppliersTab({ onRequestSupply }) {
           <tbody className="divide-y divide-slate-50">
             {filtered.map((s, idx) => {
               const cat = CATEGORY_META[s.category] || { label: s.category, cls: 'bg-slate-100 text-slate-600 border-slate-200' }
+              const isEditing = editingId === s.supplier_id
+
               return (
                 <tr
                   key={s.supplier_id}
@@ -148,23 +160,87 @@ export default function SuppliersTab({ onRequestSupply }) {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border ${cat.cls}`}>
-                      {cat.label}
-                    </span>
+                    {isEditing ? (
+                      <select
+                        value={editForm.category}
+                        onChange={e => setEditForm({ ...editForm, category: e.target.value })}
+                        className="text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-amber-400"
+                      >
+                        <option value="fabric_mill">Fabric Mill</option>
+                        <option value="trim_vendor">Trim Vendor</option>
+                        <option value="dye_house">Dye House</option>
+                      </select>
+                    ) : (
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border ${cat.cls}`}>
+                        {cat.label}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
-                    <StarRating rating={s.rating} />
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="5"
+                        value={editForm.rating}
+                        onChange={e => setEditForm({ ...editForm, rating: parseFloat(e.target.value) })}
+                        className="w-16 text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-amber-400"
+                      />
+                    ) : (
+                      <StarRating rating={s.rating} />
+                    )}
                   </td>
                   <td className="px-6 py-4">
-                    <LeadTimeBadge days={s.lead_time_days} />
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        value={editForm.lead_time_days}
+                        onChange={e => setEditForm({ ...editForm, lead_time_days: parseInt(e.target.value, 10) })}
+                        className="w-16 text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-amber-400"
+                      />
+                    ) : (
+                      <LeadTimeBadge days={s.lead_time_days} />
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => onRequestSupply(s)}
-                      className="opacity-0 group-hover:opacity-100 transition-all bg-[#1a2430] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-[#2c3e50] shadow-sm"
-                    >
-                      Request Supply
-                    </button>
+                    {isEditing ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="bg-white border border-slate-300 text-slate-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 shadow-sm"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleSaveEdit(s.supplier_id)}
+                          className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-700 shadow-sm"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                          onClick={() => handleEditClick(s)}
+                          className="bg-white border border-slate-300 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 shadow-sm"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(s.supplier_id)}
+                          className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => onRequestSupply(s)}
+                          className="bg-[#1a2430] text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-[#2c3e50] shadow-sm"
+                        >
+                          Request Supply
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )

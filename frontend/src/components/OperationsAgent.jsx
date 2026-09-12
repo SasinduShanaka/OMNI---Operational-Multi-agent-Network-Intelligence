@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
+import { supplyChainApi } from '../api/supplyChainApi'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
-function OperationsAgent({ chatState, setChatState }) {
+function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const { draft, messages, isAsking, error } = chatState
 
   function updateChatState(patch) {
@@ -151,7 +152,7 @@ function OperationsAgent({ chatState, setChatState }) {
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse data={item.data} />
+                  <AgentResponse data={item.data} setActivePage={setActivePage} setScQuery={setScQuery} />
                 )}
 
               </div>
@@ -278,7 +279,7 @@ function UserMessage({ text }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data }) {
+function AgentResponse({ data, setActivePage, setScQuery }) {
   if (!data) {
     return null
   }
@@ -340,6 +341,15 @@ function AgentResponse({ data }) {
 
         </div>
 
+      )}
+
+
+      {/* ======================================================
+          PROCUREMENT
+      ====================================================== */}
+
+      {data.intent === 'procurement' && data.data && (
+        <OmniProcurementCard data={data.data} />
       )}
 
 
@@ -1097,6 +1107,129 @@ function formatStatus(status) {
   return status
     .replaceAll('_', ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+
+/* ============================================================
+   OMNI PROCUREMENT CARD
+============================================================ */
+
+function OmniProcurementCard({ data }) {
+  const [isTyping, setIsTyping] = useState(false);
+  const [status, setStatus] = useState('pending'); // 'pending' | 'approved' | 'rejected'
+  const [shipmentData, setShipmentData] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleApprove = async () => {
+    setIsTyping(true);
+    try {
+      const result = await supplyChainApi.approvePo(data.run_id, 'Omni Operations Agent');
+      setStatus('approved');
+      setShipmentData(result);
+    } catch (err) {
+      setErrorMsg(`Logistics error: ${err.message}`);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setIsTyping(true);
+    try {
+      await supplyChainApi.rejectPo(data.run_id);
+      setStatus('rejected');
+    } catch (err) {
+      setErrorMsg(`Error: ${err.message}`);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  if (data.status === 'failed') {
+    return (
+      <div className="mt-4 bg-white border border-red-200 rounded-xl p-5 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-slate-800">Sourcing Failed</h4>
+            <p className="text-xs text-slate-500">Could not find a compliant supplier</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-600">
+          The Supply Chain Agent was unable to source a compliant supplier for your request. 
+          Error: <span className="font-mono text-red-600 bg-red-50 px-1 py-0.5 rounded">{data.error}</span>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 bg-white border border-[#d9a441]/30 rounded-xl p-5 shadow-sm">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-8 h-8 rounded-full bg-[#1f3a36] flex items-center justify-center">
+          <span className="text-white text-xs font-bold">SC</span>
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800">Supply Chain Copilot</h4>
+          <p className="text-xs text-slate-500">Drafted Purchase Order</p>
+        </div>
+      </div>
+
+      <div className="space-y-2 mb-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+        <div className="flex justify-between"><span className="text-slate-500">Supplier</span><span className="font-semibold text-slate-800">{data.supplier?.supplier_name}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500">PO #</span><span className="font-mono font-semibold text-slate-800">#{data.po?.po_id}</span></div>
+        <div className="flex justify-between"><span className="text-slate-500">Value</span><span className="font-semibold text-slate-800">LKR {data.po?.total_value?.toLocaleString()}</span></div>
+        <div className="mt-2 p-2 bg-green-50 rounded-lg text-xs text-green-700 border border-green-100">✓ Compliance verified</div>
+      </div>
+
+      {status === 'pending' && (
+        <div className="flex gap-2">
+          <button 
+            onClick={handleApprove} 
+            disabled={isTyping} 
+            className="flex-1 bg-gradient-to-r from-[#d9a441] to-[#b87d39] text-white text-sm font-semibold py-2.5 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex justify-center items-center gap-2"
+          >
+            {isTyping ? 'Authorizing...' : 'Authorize Purchase'}
+          </button>
+          <button 
+            onClick={handleReject} 
+            disabled={isTyping} 
+            className="flex-1 border border-slate-300 text-slate-700 text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
+          >
+            Reject
+          </button>
+        </div>
+      )}
+
+      {status === 'approved' && shipmentData && (
+        <div className="mt-4">
+          <div className={`text-sm font-semibold px-4 py-3 rounded-lg border bg-green-50 text-green-800 border-green-200 mb-3`}>
+            ✓ PO Authorized & Freight Booked
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 text-sm space-y-2">
+            <div className="flex justify-between"><span className="text-slate-500">Shipment</span><span className="font-mono font-semibold text-slate-800">#{shipmentData.shipment?.shipment_id}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Carrier</span><span className="font-semibold text-slate-800">{shipmentData.shipment?.carrier}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">ETA</span><span className="font-semibold text-slate-800">{shipmentData.shipment?.eta}</span></div>
+            <div className="mt-2 p-3 bg-blue-50 rounded-lg text-xs text-blue-800 italic border border-blue-100">"{shipmentData.shipment?.summary}"</div>
+          </div>
+        </div>
+      )}
+
+      {status === 'rejected' && (
+        <div className={`mt-2 text-sm font-semibold px-4 py-3 rounded-lg border bg-red-50 text-red-700 border-red-200`}>
+          ✗ PO Cancelled
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="mt-3 p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 text-xs">
+          {errorMsg}
+        </div>
+      )}
+    </div>
+  );
 }
 
 

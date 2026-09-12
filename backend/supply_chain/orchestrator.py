@@ -42,6 +42,7 @@ class PipelineState(TypedDict, total=False):
     origin:              str
     destination:         str
     approved_by:         str
+    targeted_supplier:   str | None   # Scenario A: user named a specific supplier
 
     # Agent 1 output
     supplier:            dict | None
@@ -66,11 +67,13 @@ class PipelineState(TypedDict, total=False):
 
 async def node_sourcing(state: PipelineState) -> PipelineState:
     print("\n[Orchestrator] -> Node: Sourcing")
+    targeted = state.get("targeted_supplier")
     try:
         supplier = await run_sourcing_agent(
             material_type=state["material_type"],
             requirement_id=state["requirement_id"],
-            compliance_keywords=state.get("compliance_keywords", ["Organic Cotton", "Child-Labor Free"])
+            compliance_keywords=state.get("compliance_keywords", ["Organic Cotton", "Child-Labor Free"]),
+            targeted_supplier=targeted,  # Scenario A: skip DB search if set
         )
         if not supplier:
             return {**state, "status": "failed", "error": "No compliant supplier found.", "supplier": None}
@@ -208,7 +211,8 @@ async def start_pipeline(
     qty: float,
     total_value: float,
     compliance_keywords: list[str],
-    destination: str = "Colombo, LK"
+    destination: str = "Colombo, LK",
+    targeted_supplier: str | None = None,
 ) -> dict:
     """Run 1: Sourcing + Draft PO. Returns run_id and paused state."""
     run_id = str(uuid.uuid4())
@@ -221,6 +225,7 @@ async def start_pipeline(
         "total_value":         total_value,
         "compliance_keywords": compliance_keywords,
         "destination":         destination,
+        "targeted_supplier":   targeted_supplier,
         "status":              "running",
     }
 

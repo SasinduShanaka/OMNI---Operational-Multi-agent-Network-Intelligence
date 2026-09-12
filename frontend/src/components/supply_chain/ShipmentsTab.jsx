@@ -101,8 +101,22 @@ function TrackingPanel({ shipment, onClose }) {
             )}
             {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded-lg border border-red-200">Could not reach tracking agent: {error}</div>}
             {trackData && (
-              <div className="bg-[#f5f1ea] border border-amber-100 rounded-xl p-4 text-sm text-gray-700 italic leading-relaxed">
-                "{trackData.summary}"
+              <div className="space-y-4">
+                {trackData.weather_alert && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+                    <div className="flex items-center gap-2 font-bold mb-1">
+                      <span className="text-lg">⚠️</span>
+                      SEVERE WEATHER ALERT: {trackData.weather_alert.city}
+                    </div>
+                    <div className="ml-7 text-red-700">
+                      Conditions: {trackData.weather_alert.description} <br />
+                      Wind Speed: {trackData.weather_alert.wind_kph} km/h
+                    </div>
+                  </div>
+                )}
+                <div className="bg-[#f5f1ea] border border-amber-100 rounded-xl p-4 text-sm text-gray-700 italic leading-relaxed">
+                  "{trackData.summary}"
+                </div>
               </div>
             )}
           </div>
@@ -112,36 +126,38 @@ function TrackingPanel({ shipment, onClose }) {
   )
 }
 
-export default function ShipmentsTab() {
-  const [shipments, setShipments] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+export default function ShipmentsTab({ shipments, onUpdate }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [trackingShipment, setTrackingShipment] = useState(null)
+  const [actionLoading, setActionLoading] = useState(null)
 
-  const fetchShipments = useCallback(() => {
-    setLoading(true)
-    supplyChainApi.getShipments()
-      .then(data => { setShipments(data); setLoading(false) })
-      .catch(e => { setError(e.message); setLoading(false) })
-  }, [])
+  const handleStatusChange = async (shipmentId, newStatus) => {
+    setActionLoading(shipmentId)
+    try {
+      await supplyChainApi.updateShipmentStatus(shipmentId, newStatus)
+      if (onUpdate) onUpdate()
+    } catch (err) {
+      alert('Failed to update status: ' + err.message)
+    } finally {
+      setActionLoading(null)
+    }
+  }
 
-  useEffect(() => { fetchShipments() }, [fetchShipments])
+  const handleDelete = async (shipmentId) => {
+    if (!window.confirm(`Are you sure you want to delete shipment #${shipmentId}?`)) return
+    setActionLoading(shipmentId)
+    try {
+      await supplyChainApi.deleteShipment(shipmentId)
+      if (onUpdate) onUpdate()
+    } catch (err) {
+      alert('Failed to delete shipment: ' + err.message)
+    } finally {
+      setActionLoading(null)
+    }
+  }
 
   const filtered = statusFilter === 'all' ? shipments : shipments.filter(s => s.status === statusFilter)
   const delayedCount = shipments.filter(s => s.status === 'delayed').length
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400">
-      <svg className="animate-spin w-6 h-6 mr-2 text-amber-500" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
-      Loading shipments...
-    </div>
-  )
-
-  if (error) return <div className="p-6 text-red-600 bg-red-50 rounded-xl border border-red-200">Error: {error}</div>
 
   return (
     <div className="animate-fade-in-up">
@@ -176,7 +192,7 @@ export default function ShipmentsTab() {
             <option value="delivered">Delivered</option>
           </select>
           <button
-            onClick={fetchShipments}
+            onClick={() => { if (onUpdate) onUpdate() }}
             className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-500"
             title="Refresh"
           >
@@ -222,16 +238,37 @@ export default function ShipmentsTab() {
                   <div className="font-medium text-gray-800">{s.eta}</div>
                   {s.actual_arrival && <div className="text-xs text-green-600">Arrived: {s.actual_arrival}</div>}
                 </td>
-                <td className="px-5 py-4"><StatusBadge status={s.status} /></td>
                 <td className="px-5 py-4">
-                  {s.status !== 'delivered' && (
-                    <button
-                      onClick={() => setTrackingShipment(s)}
-                      className="text-xs font-semibold text-[#1a2430] border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-[#1a2430] hover:text-white transition-colors"
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={s.status}
+                      onChange={e => handleStatusChange(s.shipment_id, e.target.value)}
+                      disabled={actionLoading === s.shipment_id}
+                      className="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:border-amber-400"
                     >
-                      Track Live
-                    </button>
-                  )}
+                      <option value="booked">Booked</option>
+                      <option value="in_transit">In Transit</option>
+                      <option value="delayed">Delayed</option>
+                      <option value="delivered">Delivered</option>
+                    </select>
+
+                    {s.status !== 'delivered' ? (
+                      <button
+                        onClick={() => setTrackingShipment(s)}
+                        className="text-xs font-semibold text-[#1a2430] border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-[#1a2430] hover:text-white transition-colors"
+                      >
+                        Track Live
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(s.shipment_id)}
+                        disabled={actionLoading === s.shipment_id}
+                        className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
