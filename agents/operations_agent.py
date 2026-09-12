@@ -151,10 +151,19 @@ Use when the user asks:
 - inventory percentages
 - inventory statistics
 
-12. unknown
+12. procurement
+
+Use when the user asks to order, buy, source, or procure materials.
+Examples:
+- I need 300 meters of organic cotton
+- Order 500 zippers from YKK
+- We need to buy more dye
+- Source some fabric
+
+13. unknown
 
 Use only when the request is clearly unrelated
-to inventory or operations.
+to inventory, operations, or procurement.
 
 13. demand_forecast
 
@@ -954,6 +963,57 @@ def process_request(user_request: str):
             "workflow": ["Operations Agent", "Forecast Agent"],
             "answer": final_answer,
             "result": forecast,
+        }
+
+    # ========================================================
+    # PROCUREMENT
+    # ========================================================
+
+    if intent == "procurement":
+        import asyncio
+        from backend.supply_chain.supervisor import process_chat_message
+        from backend.supply_chain.orchestrator import start_pipeline
+
+        decision = process_chat_message(user_request)
+
+        if decision.scenario == "unrelated":
+            return {
+                "agent": "Operations Agent",
+                "task": "Procurement Request",
+                "delegated_to": "Supply Chain Agent",
+                "llm_used": True,
+                "intent": "unknown",
+                "status": "success",
+                "workflow": [
+                    "Operations Agent"
+                ],
+                "answer": "I can help you source and procure materials. Try: 'I need 400 meters of organic cotton'."
+            }
+
+        result = asyncio.run(start_pipeline(
+            material_type=decision.material_type,
+            requirement_id=decision.requirement_id,
+            qty=float(decision.qty),
+            total_value=decision.total_value,
+            compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+            destination="Colombo, LK",
+            targeted_supplier=decision.supplier_name,
+        ))
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Procurement Request",
+            "delegated_to": "Supply Chain Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Supply Chain Agent"
+            ],
+            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
+            "data": result,
+            "user_request": user_request
         }
 
     # ========================================================

@@ -49,6 +49,9 @@ from agents.inventory_agent import (
     get_total_stock,
 )
 
+# Supply chain pipeline router (Dinuja's component)
+from backend.supply_chain.router import supply_chain_router
+
 
 # ============================================================
 # FASTAPI APPLICATION
@@ -71,6 +74,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
     ],
 
     allow_credentials=True,
@@ -79,6 +86,9 @@ app.add_middleware(
 
     allow_headers=["*"],
 )
+
+# Mount supply chain router under /supply-chain prefix
+app.include_router(supply_chain_router, prefix="/supply-chain", tags=["Supply Chain"])
 
 
 # ============================================================

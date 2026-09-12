@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
+import { supplyChainApi } from '../api/supplyChainApi'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
-function OperationsAgent({ chatState, setChatState }) {
+function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const { draft, messages, isAsking, error } = chatState
 
   function updateChatState(patch) {
@@ -153,7 +154,7 @@ function OperationsAgent({ chatState, setChatState }) {
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse data={item.data} />
+                  <AgentResponse data={item.data} setActivePage={setActivePage} setScQuery={setScQuery} />
                 )}
 
               </div>
@@ -280,7 +281,7 @@ function UserMessage({ text }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data }) {
+function AgentResponse({ data, setActivePage, setScQuery }) {
   if (!data) {
     return null
   }
@@ -346,6 +347,11 @@ function AgentResponse({ data }) {
 
 
       {/* ======================================================
+          PROCUREMENT
+      ====================================================== */}
+
+      {data.intent === 'procurement' && data.data && (
+        <OmniProcurementCard data={data.data} />
           DEMAND FORECAST
       ====================================================== */}
 
@@ -1155,4 +1161,5 @@ function formatStatus(status) {
 }
 
 
-export default OperationsAgent
+/* ============================================================
+   OMNI PROCUREMENT CARD

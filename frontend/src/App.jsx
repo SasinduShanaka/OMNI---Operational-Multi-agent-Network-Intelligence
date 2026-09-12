@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import InventoryPage from './components/InventoryPage'
 import OperationsAgent from './components/OperationsAgent'
+import SupplyChainPanel from './components/SupplyChainPanel'
 import DemandForecastPage from './components/DemandForecastPage'
 
 
@@ -987,6 +988,8 @@ function App() {
     'dashboard'
   )
 
+  const [scQuery, setScQuery] = useState(null)
+
   const [chatState, setChatState] = useState({
     draft: '',
     messages: [],
@@ -1021,6 +1024,8 @@ function App() {
           <OperationsAgent
             chatState={chatState}
             setChatState={setChatState}
+            setActivePage={setActivePage}
+            setScQuery={setScQuery}
           />
         )
 
@@ -1035,9 +1040,7 @@ function App() {
       case 'supplier':
 
         return (
-          <PlaceholderPage
-            title="Supplier intelligence agent"
-          />
+          <SupplyChainPanel initialQuery={scQuery} clearQuery={() => setScQuery(null)} />
         )
 
 
