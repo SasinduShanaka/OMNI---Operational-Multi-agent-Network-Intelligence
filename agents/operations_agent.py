@@ -167,7 +167,16 @@ Use when the user asks:
 - inventory percentages
 - inventory statistics
 
-12. production_feasibility
+12. procurement
+
+Use when the user asks to order, buy, source, or procure materials.
+Examples:
+- I need 300 meters of organic cotton
+- Order 500 zippers from YKK
+- We need to buy more dye
+- Source some fabric
+
+13. production_feasibility
 
 Use when the user asks whether an ORDER can be
 manufactured — a finished garment, a quantity and
@@ -183,7 +192,7 @@ Examples:
 Extract product_name (or sku), required_quantity
 and required_date for this intent.
 
-13. production_lines
+14. production_lines
 
 Use when the user asks:
 - show me the production lines
@@ -191,7 +200,7 @@ Use when the user asks:
 - how many units can we make per day?
 - which lines are running?
 
-14. production_bottleneck
+15. production_bottleneck
 
 Use when the user asks:
 - which line is the bottleneck?
@@ -199,7 +208,7 @@ Use when the user asks:
 - which lines are overloaded?
 - what is slowing production down?
 
-15. production_status
+16. production_status
 
 Use when the user asks about progress on
 manufacturing work already underway.
@@ -210,7 +219,7 @@ Examples:
 - are the production orders on track?
 - which orders are behind schedule?
 
-16. production_kpis
+17. production_kpis
 
 Use when the user asks:
 - give me production KPIs
@@ -218,17 +227,30 @@ Use when the user asks:
 - production performance
 - production statistics
 
-17. unknown
+18. demand_forecast
+
+Use when the user asks:
+
+forecast demand
+future demand
+next month demand
+predict sales
+estimate demand
+demand prediction
+
+19. unknown
 
 Use only when the request is clearly unrelated
-to inventory, production or operations.
+to inventory, production, procurement, forecasting or operations.
 
 IMPORTANT:
 
 Distinguish MATERIALS from FINISHED PRODUCTS.
 
 Fabric, thread, buttons, labels and packaging are
-materials — those are inventory intents.
+materials — those are inventory intents, unless the
+user is asking to source, buy or order them, which is
+procurement.
 
 Polos, t-shirts, shirts, hoodies, tops and trousers
 are finished products — those are production intents.
@@ -239,16 +261,11 @@ is inventory_requirement.
 "Can we make 4000 Black Polos?"
 is production_feasibility.
 
-13. demand_forecast
+"I need 300 meters of organic cotton"
+is procurement.
 
-Use when the user asks:
-
-forecast demand
-future demand
-next month demand
-predict sales
-estimate demand
-demand prediction
+"What will demand look like next month?"
+is demand_forecast.
 
 IMPORTANT:
 
@@ -1105,6 +1122,57 @@ def process_request(user_request: str):
         }
 
     # ========================================================
+    # PROCUREMENT
+    # ========================================================
+
+    if intent == "procurement":
+        import asyncio
+        from backend.supply_chain.supervisor import process_chat_message
+        from backend.supply_chain.orchestrator import start_pipeline
+
+        decision = process_chat_message(user_request)
+
+        if decision.scenario == "unrelated":
+            return {
+                "agent": "Operations Agent",
+                "task": "Procurement Request",
+                "delegated_to": "Supply Chain Agent",
+                "llm_used": True,
+                "intent": "unknown",
+                "status": "success",
+                "workflow": [
+                    "Operations Agent"
+                ],
+                "answer": "I can help you source and procure materials. Try: 'I need 400 meters of organic cotton'."
+            }
+
+        result = asyncio.run(start_pipeline(
+            material_type=decision.material_type,
+            requirement_id=decision.requirement_id,
+            qty=float(decision.qty),
+            total_value=decision.total_value,
+            compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+            destination="Colombo, LK",
+            targeted_supplier=decision.supplier_name,
+        ))
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Procurement Request",
+            "delegated_to": "Supply Chain Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Supply Chain Agent"
+            ],
+            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
+            "data": result,
+            "user_request": user_request
+        }
+
+    # ========================================================
     # PRODUCTION FEASIBILITY
     # ========================================================
     #
@@ -1413,8 +1481,6 @@ def process_request(user_request: str):
             "answer": final_answer,
             "result": production_data
         }
-
-
     # ========================================================
     # UNKNOWN
     # ========================================================
