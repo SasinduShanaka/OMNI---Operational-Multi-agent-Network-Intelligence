@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import InventoryPage from './components/InventoryPage'
 import OperationsAgent from './components/OperationsAgent'
 import SupplyChainPanel from './components/SupplyChainPanel'
+import DemandForecastPage from './components/DemandForecastPage'
 
 
 // ============================================================
@@ -1032,9 +1033,7 @@ function App() {
       case 'forecast':
 
         return (
-          <PlaceholderPage
-            title="Demand forecast agent"
-          />
+          <DemandForecastPage setActivePage={setActivePage} />
         )
 
 
