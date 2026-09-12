@@ -1166,6 +1166,32 @@ function formatStatus(status) {
 
 /* ============================================================
    OMNI PROCUREMENT CARD
+
+   NOTE: this component was left unfinished on the dev branch — the
+   file ended mid-comment here with no implementation, and
+   OmniProcurementCard was referenced above without ever being
+   imported or defined. This is a minimal fallback so a procurement
+   response renders instead of crashing with a ReferenceError.
+   Replace with the real UI once the intended design is available.
 ============================================================ */
+
+function OmniProcurementCard({ data }) {
+
+  return (
+
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+
+      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+        Procurement result (placeholder view)
+      </p>
+
+      <pre className="whitespace-pre-wrap break-words text-xs text-slate-600">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+
+    </div>
+
+  )
+}
 
 export default OperationsAgent

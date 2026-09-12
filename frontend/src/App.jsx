@@ -4,6 +4,7 @@ import InventoryPage from './components/InventoryPage'
 import OperationsAgent from './components/OperationsAgent'
 import SupplyChainPanel from './components/SupplyChainPanel'
 import DemandForecastPage from './components/DemandForecastPage'
+import ProductionPage from './components/ProductionPage'
 
 
 // ============================================================
@@ -1047,9 +1048,7 @@ function App() {
       case 'production':
 
         return (
-          <PlaceholderPage
-            title="Production scheduling agent"
-          />
+          <ProductionPage />
         )
 
 

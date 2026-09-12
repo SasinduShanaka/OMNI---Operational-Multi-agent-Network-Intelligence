@@ -49,6 +49,18 @@ from agents.inventory_agent import (
     get_total_stock,
 )
 
+from agents.production_agent import (
+    get_all_lines,
+    get_producible_products,
+    get_line_utilization,
+    identify_bottlenecks,
+    get_production_orders,
+    get_production_progress,
+    check_production_feasibility,
+    get_production_kpis,
+    get_production_summary,
+)
+
 # Supply chain pipeline router (Dinuja's component)
 from backend.supply_chain.router import supply_chain_router
 
@@ -108,6 +120,13 @@ class ForecastRequest(BaseModel):
     sku: str
     periods: int = 1
     save_audit: bool = True
+
+
+class FeasibilityRequest(BaseModel):
+    sku: str | None = None
+    product_name: str | None = None
+    quantity: float
+    required_date: str
 
 
 # ============================================================
@@ -319,4 +338,258 @@ def total_stock():
         raise HTTPException(
             status_code=500,
             detail="Unable to calculate total stock."
+        )
+
+# ============================================================
+# PRODUCTION — LINES
+# ============================================================
+
+@app.get("/production/lines")
+def production_lines():
+
+    try:
+
+        return get_all_lines()
+
+    except Exception as error:
+
+        print(
+            f"Production lines error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve production lines."
+        )
+
+
+# ============================================================
+# PRODUCTION — UTILIZATION
+# ============================================================
+
+@app.get("/production/utilization")
+def production_utilization():
+
+    try:
+
+        return get_line_utilization()
+
+    except Exception as error:
+
+        print(
+            f"Production utilization error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve line utilization."
+        )
+
+
+# ============================================================
+# PRODUCTION — BOTTLENECKS
+# ============================================================
+
+@app.get("/production/bottlenecks")
+def production_bottlenecks():
+
+    try:
+
+        return identify_bottlenecks()
+
+    except Exception as error:
+
+        print(
+            f"Production bottleneck error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to identify production bottlenecks."
+        )
+
+
+# ============================================================
+# PRODUCTION — ORDERS
+# ============================================================
+
+@app.get("/production/orders")
+def production_orders():
+
+    try:
+
+        return get_production_orders()
+
+    except Exception as error:
+
+        print(
+            f"Production orders error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve production orders."
+        )
+
+
+# ============================================================
+# PRODUCTION — SINGLE ORDER PROGRESS
+# ============================================================
+
+@app.get("/production/orders/{order_id}")
+def production_order_progress(order_id: str):
+
+    try:
+
+        result = get_production_progress(
+            order_id=order_id,
+            production_order_id=order_id
+        )
+
+        if result is None:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Production order not found."
+            )
+
+        return result
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Production progress error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve production order progress."
+        )
+
+
+# ============================================================
+# PRODUCTION — FEASIBILITY (PRODUCTION -> INVENTORY AGENT)
+# ============================================================
+
+@app.post("/production/feasibility")
+def production_feasibility(request: FeasibilityRequest):
+
+    if not request.sku and not request.product_name:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Provide sku or product_name."
+        )
+
+    if request.quantity <= 0:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Quantity must be greater than zero."
+        )
+
+    try:
+
+        result = check_production_feasibility(
+            sku=request.sku,
+            product_name=request.product_name,
+            quantity=request.quantity,
+            required_date=request.required_date
+        )
+
+        if result.get("status") == "NOT_FOUND":
+
+            raise HTTPException(
+                status_code=404,
+                detail="Product not found."
+            )
+
+        return result
+
+    except HTTPException:
+
+        raise
+
+    except Exception as error:
+
+        print(
+            f"Production feasibility error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to assess production feasibility."
+        )
+
+
+# ============================================================
+# PRODUCTION — KPIs
+# ============================================================
+
+@app.get("/production/kpis")
+def production_kpis():
+
+    try:
+
+        return get_production_kpis()
+
+    except Exception as error:
+
+        print(
+            f"Production KPI error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to calculate production KPIs."
+        )
+
+
+# ============================================================
+# PRODUCTION — SUMMARY
+# ============================================================
+
+@app.get("/production/summary")
+def production_summary():
+
+    try:
+
+        return get_production_summary()
+
+    except Exception as error:
+
+        print(
+            f"Production summary error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve production summary."
+        )
+
+
+# ============================================================
+# PRODUCTION — PRODUCIBLE PRODUCTS
+# ============================================================
+
+@app.get("/production/products")
+def production_products():
+
+    try:
+
+        return get_producible_products()
+
+    except Exception as error:
+
+        print(
+            f"Producible products error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to retrieve producible products."
         )
