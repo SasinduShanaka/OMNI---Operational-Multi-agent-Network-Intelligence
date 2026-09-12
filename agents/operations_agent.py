@@ -18,7 +18,7 @@ from agents.inventory_agent import (
     get_largest_shortages,
     get_inventory_kpis,
 )
-
+from agents.forecast_agent import forecast_all_demand, forecast_demand
 
 # ============================================================
 # ENVIRONMENT
@@ -155,6 +155,17 @@ Use when the user asks:
 
 Use only when the request is clearly unrelated
 to inventory or operations.
+
+13. demand_forecast
+
+Use when the user asks:
+
+forecast demand
+future demand
+next month demand
+predict sales
+estimate demand
+demand prediction
 
 IMPORTANT:
 
@@ -361,7 +372,34 @@ def process_request(user_request: str):
     # Understand the user's request
     # --------------------------------------------------------
 
-    decision = understand_request(user_request)
+    normalized_request = user_request.lower()
+    forecast_phrases = (
+        "forecast",
+        "forcast",
+        "fore cast",
+        "demand",
+        "prediction",
+        "predict sales",
+        "sales prediction",
+        "expected sales",
+        "future sales",
+    )
+    planning_question = (
+        re.search(r'\bGAR-\d{3}\b', user_request, re.IGNORECASE)
+        and any(phrase in normalized_request for phrase in ("next month", "future", "will we need", "expected units"))
+    )
+
+    # Forecast questions have a deterministic route and do not need an LLM
+    # classification step before being delegated to the Forecast Agent.
+    if any(phrase in normalized_request for phrase in forecast_phrases) or planning_question:
+        decision = {
+            "intent": "demand_forecast",
+            "material_name": None,
+            "material_code": None,
+            "required_quantity": None,
+        }
+    else:
+        decision = understand_request(user_request)
 
     intent = decision.get("intent")
 
@@ -847,6 +885,76 @@ def process_request(user_request: str):
             "result": inventory_data
         }
 
+    # Demand Forecast
+    if intent == "demand_forecast":
+
+        sku_match = re.search(r'\bGAR-\d{3}\b', user_request, re.IGNORECASE)
+
+        if not sku_match:
+            forecasts = forecast_all_demand()
+
+            if not forecasts:
+                return {
+                    "agent": "Operations Agent",
+                    "delegated_to": "Forecast Agent",
+                    "intent": intent,
+                    "status": "no_data",
+                    "workflow": ["Operations Agent", "Forecast Agent"],
+                    "answer": "The Demand Forecast Agent could not find enough demand history to create a forecast.",
+                    "results": [],
+                }
+
+            total_forecast = sum(item["forecast"] for item in forecasts)
+            increasing = sum(item["trend"] == "Increasing" for item in forecasts)
+            decreasing = sum(item["trend"] == "Decreasing" for item in forecasts)
+            stable = sum(item["trend"] == "Stable" for item in forecasts)
+
+            return {
+                "agent": "Operations Agent",
+                "delegated_to": "Forecast Agent",
+                "intent": intent,
+                "status": "success",
+                "workflow": ["Operations Agent", "Forecast Agent"],
+                "answer": (
+                    f"The Demand Forecast Agent analyzed {len(forecasts)} products and predicts "
+                    f"a combined demand of {total_forecast:,.2f} units for the next period. "
+                    f"{increasing} product(s) are increasing, {decreasing} are decreasing, "
+                    f"and {stable} are stable. The individual product forecasts are shown below."
+                ),
+                "summary": {
+                    "products_forecasted": len(forecasts),
+                    "combined_forecast": round(total_forecast, 2),
+                    "increasing": increasing,
+                    "decreasing": decreasing,
+                    "stable": stable,
+                },
+                "results": forecasts,
+            }
+
+        forecast = forecast_demand(sku_match.group())
+
+        if forecast["status"] == "success":
+            accuracy = forecast["accuracy"]
+            final_answer = (
+                f"The Demand Forecast Agent predicts {forecast['forecast']:,.2f} units of "
+                f"{forecast['product_name']} ({forecast['sku']}) for {forecast['forecast_period']}. "
+                f"Demand is {forecast['trend'].lower()} at {forecast['trend_per_period']:+,.2f} units per month. "
+                f"The model used {forecast['history_points']} monthly demand records and achieved "
+                f"{accuracy['accuracy_percent']:.2f}% backtest accuracy (MAPE {accuracy['mape_percent']:.2f}%). "
+                f"{forecast['recommendation']}"
+            )
+        else:
+            final_answer = forecast["message"]
+
+        return {
+            "agent": "Operations Agent",
+            "delegated_to": "Forecast Agent",
+            "intent": intent,
+            "status": forecast["status"],
+            "workflow": ["Operations Agent", "Forecast Agent"],
+            "answer": final_answer,
+            "result": forecast,
+        }
 
     # ========================================================
     # UNKNOWN

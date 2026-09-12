@@ -40,6 +40,7 @@ load_dotenv(ENV_PATH)
 # ============================================================
 
 from agents.operations_agent import process_request
+from agents.forecast_agent import forecast_demand, get_forecast_products, get_demand_quality
 
 from agents.inventory_agent import (
     check_inventory,
@@ -91,6 +92,12 @@ class AskRequest(BaseModel):
 class MaterialRequest(BaseModel):
     material_name: str | None = None
     material_code: str | None = None
+
+
+class ForecastRequest(BaseModel):
+    sku: str
+    periods: int = 1
+    save_audit: bool = True
 
 
 # ============================================================
@@ -153,6 +160,41 @@ def ask_agent(request: AskRequest):
             status_code=500,
             detail="Operations Agent failed to process the request."
         )
+
+
+# ============================================================
+# DEMAND FORECAST AGENT
+# ============================================================
+
+@app.get("/forecast/data-quality/{sku}")
+def demand_quality(sku: str):
+    try:
+        return get_demand_quality(sku)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail={"message": str(error)})
+    except Exception:
+        raise HTTPException(status_code=503, detail={"message": "Unable to check demand data. Check MongoDB connectivity."})
+
+
+@app.get("/forecast/products")
+def forecast_products():
+    try:
+        return {"products": get_forecast_products()}
+    except Exception:
+        raise HTTPException(status_code=503, detail={"message": "Unable to load products from MongoDB. Check database connectivity and MONGO_URI."})
+
+
+@app.post("/forecast")
+def demand_forecast(request: ForecastRequest):
+    """Send a demand-forecast request directly to the Forecast Agent."""
+
+    result = forecast_demand(request.sku, request.periods, request.save_audit)
+
+    if result["status"] == "error":
+        status_code = 404 if result["error_code"] == "not_found" else 503 if result["error_code"] in {"configuration_error", "data_access_error"} else 400
+        raise HTTPException(status_code=status_code, detail=result)
+
+    return result
 
 
 # ============================================================
