@@ -309,3 +309,7 @@ public/
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+backend/.env
+
+# Local duplicate copy of the repo — never commit
+uniSlot/

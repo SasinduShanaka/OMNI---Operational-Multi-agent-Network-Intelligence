@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import InventoryPage from './components/InventoryPage'
 import OperationsAgent from './components/OperationsAgent'
 import DemandForecastPage from './components/DemandForecastPage'
+import ProductionPage from './components/ProductionPage'
 
 
 // ============================================================
@@ -1044,9 +1045,7 @@ function App() {
       case 'production':
 
         return (
-          <PlaceholderPage
-            title="Production scheduling agent"
-          />
+          <ProductionPage />
         )
 
 
