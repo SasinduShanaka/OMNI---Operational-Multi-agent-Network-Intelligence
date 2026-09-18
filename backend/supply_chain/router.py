@@ -7,13 +7,6 @@ Mounted in backend/main.py under the /supply-chain prefix.
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.supply_chain.orchestrator import (
-    start_pipeline,
-    approve_pipeline,
-    get_pipeline_state,
-)
-from backend.supply_chain.supervisor import process_chat_message
-
 supply_chain_router = APIRouter()
 
 
@@ -59,6 +52,9 @@ async def chat_pipeline(request: ChatRequest):
     Supervisor LLM, and start the correct sourcing pipeline.
     """
     try:
+        from backend.supply_chain.orchestrator import start_pipeline
+        from backend.supply_chain.supervisor import process_chat_message
+
         decision = process_chat_message(request.message)
 
         if decision.scenario == "unrelated":
@@ -95,6 +91,8 @@ async def run_pipeline(request: RunRequest):
     Returns a run_id and a pending PO for human review.
     """
     try:
+        from backend.supply_chain.orchestrator import start_pipeline
+
         result = await start_pipeline(
             material_type=request.material_type,
             requirement_id=request.requirement_id,
@@ -166,6 +164,8 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     Approve a pending PO and complete the pipeline (freight + tracking).
     """
     try:
+        from backend.supply_chain.orchestrator import approve_pipeline
+
         result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by)
 
         if "error" in result:
@@ -222,6 +222,8 @@ async def reject_po(run_id: str):
 async def pipeline_status(run_id: str):
     """Return the current state of a pipeline by run_id."""
     try:
+        from backend.supply_chain.orchestrator import get_pipeline_state
+
         result = await get_pipeline_state(run_id)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])

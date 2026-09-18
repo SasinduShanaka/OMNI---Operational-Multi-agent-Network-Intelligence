@@ -9,9 +9,18 @@ import os
 import sys
 import json
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, ToolMessage
+try:
+    from langchain_groq import ChatGroq
+    from langchain_core.tools import tool
+    from langchain_core.messages import HumanMessage, ToolMessage
+except ImportError:
+    ChatGroq = None
+
+    def tool(func):
+        return func
+
+    HumanMessage = None
+    ToolMessage = None
 
 # ------------------------------------------------------------------
 # Paths
@@ -95,6 +104,33 @@ async def run_tracking_agent(
     """
     print(f"\n[Agent 4 — Tracking] LLM investigating shipment #{shipment_id}...")
 
+    if ChatGroq is None:
+        print("  [Agent 4] LangChain Groq unavailable; reading shipment status deterministically.")
+        from fastmcp import Client
+        async with Client(TMS_SERVER) as tms:
+            result = await tms.call_tool("get_shipment_status", {"shipment_id": shipment_id})
+        final_state = result.data if hasattr(result, "data") else result
+        if isinstance(final_state, dict) and "result" in final_state:
+            final_state = final_state["result"]
+        if "error" in final_state:
+            return {"error": final_state["error"]}
+
+        current_status = final_state.get("status", "unknown")
+        eta = final_state.get("eta", "N/A")
+        origin = final_state.get("origin", "")
+        destination = final_state.get("destination", "")
+        carrier = final_state.get("carrier_name", "")
+        return {
+            "shipment_id": shipment_id,
+            "status": current_status,
+            "eta": eta,
+            "carrier": carrier,
+            "origin": origin,
+            "destination": destination,
+            "weather_alert": None,
+            "summary": f"Shipment #{shipment_id} status: {current_status}. Route: {origin} -> {destination}. ETA: {eta}.",
+        }
+
     llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
     tools = [get_shipment_status_tool, update_shipment_status_tool]
     if check_weather:
@@ -150,15 +186,15 @@ You are a Shipment Tracking Agent for shipment_id {shipment_id}.
 
     print(f"\n  Final Status  : {current_status.upper()}")
     print(f"  Carrier : {carrier}")
-    print(f"  Route   : {origin} → {destination}")
+    print(f"  Route   : {origin} -> {destination}")
     print(f"  ETA     : {eta}")
 
     # Generate plain-English summary
     status_messages = {
         "booked":     f"Your shipment #{shipment_id} is booked with {carrier}. Departure pending. ETA: {eta}.",
-        "in_transit": f"Your shipment #{shipment_id} is in transit via {carrier}. ETA: {eta}. Route: {origin} → {destination}.",
-        "delayed":    f"⚠️  Your shipment #{shipment_id} is DELAYED. Original ETA was {eta}. Please contact {carrier} for updates.",
-        "delivered":  f"✅ Your shipment #{shipment_id} has been delivered. Route: {origin} → {destination}.",
+        "in_transit": f"Your shipment #{shipment_id} is in transit via {carrier}. ETA: {eta}. Route: {origin} -> {destination}.",
+        "delayed":    f"Shipment #{shipment_id} is DELAYED. Original ETA was {eta}. Please contact {carrier} for updates.",
+        "delivered":  f"Your shipment #{shipment_id} has been delivered. Route: {origin} -> {destination}.",
     }
     summary = status_messages.get(current_status, f"Shipment #{shipment_id} status: {current_status}.")
 

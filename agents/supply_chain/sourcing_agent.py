@@ -22,6 +22,29 @@ sys.path.insert(0, MCP_DIR)
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
 
 
+def _search_suppliers_from_sqlite(material_type: str) -> list[dict]:
+    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
+    if sqlite_dir not in sys.path:
+        sys.path.insert(0, sqlite_dir)
+    from db import ensure_erp_db_ready, get_erp_db_connection
+
+    ensure_erp_db_ready()
+    conn = get_erp_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT supplier_id, name, country, category, lead_time_days, rating
+            FROM suppliers
+            WHERE category = ?
+            ORDER BY rating DESC
+            """,
+            (material_type,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 # ------------------------------------------------------------------
 # Agent 1 — Main function
 # ------------------------------------------------------------------
@@ -58,22 +81,26 @@ async def run_sourcing_agent(
     if compliance_keywords is None:
         compliance_keywords = ["Organic Cotton", "Child-Labor Free"]
 
-    print(f"\n[Agent 1 - Sourcing] Mode: {'TARGETED → ' + targeted_supplier if targeted_supplier else 'AUTONOMOUS'}")
+    print(f"\n[Agent 1 - Sourcing] Mode: {'TARGETED -> ' + targeted_supplier if targeted_supplier else 'AUTONOMOUS'}")
     print(f"  Material type: {material_type}")
     print(f"  Compliance requirements: {compliance_keywords}")
 
     # ------------------------------------------------------------------
     # Step 1: Get supplier list
     # ------------------------------------------------------------------
-    async with Client(ERP_SERVER) as erp:
-        result = await erp.call_tool(
-            "search_suppliers",
-            {"material_type": material_type}
-        )
+    try:
+        async with Client(ERP_SERVER) as erp:
+            result = await erp.call_tool(
+                "search_suppliers",
+                {"material_type": material_type}
+            )
 
-    all_suppliers = result.data if hasattr(result, "data") else result
-    if isinstance(all_suppliers, dict) and "result" in all_suppliers:
-        all_suppliers = all_suppliers["result"]
+        all_suppliers = result.data if hasattr(result, "data") else result
+        if isinstance(all_suppliers, dict) and "result" in all_suppliers:
+            all_suppliers = all_suppliers["result"]
+    except Exception as error:
+        print(f"  [Agent 1] MCP unavailable ({error}); reading ERP SQLite directly.")
+        all_suppliers = _search_suppliers_from_sqlite(material_type)
 
     if not all_suppliers:
         print(f"  [Agent 1] No suppliers found for '{material_type}'.")
@@ -105,14 +132,14 @@ async def run_sourcing_agent(
         try:
             check = check_supplier_compliance(name, compliance_keywords)
             if check["compliant"]:
-                print(f"    ✅ COMPLIANT - matched: {check['matched_keywords']}")
+                print(f"    COMPLIANT - matched: {check['matched_keywords']}")
                 compliant_suppliers.append({
                     **s,
                     "compliance_proof": check["proof_excerpt"],
                     "matched_keywords": check["matched_keywords"],
                 })
             else:
-                print(f"    ❌ NON-COMPLIANT - missing: {check['missing_keywords']}")
+                print(f"    NON-COMPLIANT - missing: {check['missing_keywords']}")
         except Exception as e:
             print(f"    [Warning] RAG unavailable for {name}: {e}")
             # Only use fallback if chromadb is completely missing; otherwise let it fail clean
@@ -133,7 +160,7 @@ async def run_sourcing_agent(
 
     best = max(compliant_suppliers, key=lambda s: s.get("rating", 0))
 
-    print(f"\n  [Agent 1] ✅ Best compliant supplier: {best['name']} (rating={best['rating']})")
+    print(f"\n  [Agent 1] Best compliant supplier: {best['name']} (rating={best['rating']})")
     print(f"  Compliance proof: \"{best['compliance_proof'][:120]}...\"")
 
     return {

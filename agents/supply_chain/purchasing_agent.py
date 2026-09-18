@@ -8,9 +8,17 @@ import asyncio
 import os
 import sys
 import json
-from langchain_groq import ChatGroq
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+try:
+    from langchain_groq import ChatGroq
+    from langchain_core.tools import tool
+    from langchain_core.messages import HumanMessage
+except ImportError:
+    ChatGroq = None
+
+    def tool(func):
+        return func
+
+    HumanMessage = None
 
 # ------------------------------------------------------------------
 # Paths
@@ -19,6 +27,59 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MCP_DIR  = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
+
+
+def _draft_po_in_sqlite(supplier_id: int, requirement_id: int, qty: float, total_value: float) -> dict:
+    from datetime import date, timedelta
+
+    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
+    if sqlite_dir not in sys.path:
+        sys.path.insert(0, sqlite_dir)
+    from db import ensure_erp_db_ready, get_erp_db_connection
+
+    ensure_erp_db_ready()
+    conn = get_erp_db_connection()
+    try:
+        expected_delivery = (date.today() + timedelta(days=14)).isoformat()
+        cur = conn.execute(
+            """
+            INSERT INTO purchase_orders
+                (supplier_id, requirement_id, qty, total_value, order_date, expected_delivery_date, status, approved_by)
+            VALUES (?, ?, ?, ?, ?, ?, 'draft', NULL)
+            """,
+            (supplier_id, requirement_id, qty, total_value, date.today().isoformat(), expected_delivery),
+        )
+        conn.commit()
+        return {
+            "po_id": cur.lastrowid,
+            "supplier_id": supplier_id,
+            "requirement_id": requirement_id,
+            "qty": qty,
+            "total_value": total_value,
+            "status": "draft",
+            "expected_delivery_date": expected_delivery,
+        }
+    finally:
+        conn.close()
+
+
+def _approve_po_in_sqlite(po_id: int, approved_by: str) -> dict:
+    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
+    if sqlite_dir not in sys.path:
+        sys.path.insert(0, sqlite_dir)
+    from db import ensure_erp_db_ready, get_erp_db_connection
+
+    ensure_erp_db_ready()
+    conn = get_erp_db_connection()
+    try:
+        conn.execute(
+            "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ?",
+            (approved_by, po_id),
+        )
+        conn.commit()
+        return {"po_id": po_id, "status": "approved", "approved_by": approved_by}
+    finally:
+        conn.close()
 
 
 # ------------------------------------------------------------------
@@ -56,6 +117,7 @@ async def run_purchasing_agent(
     requirement_id: int,
     qty: float,
     total_value: float,
+    draft_only: bool = False,
     auto_approve: bool = False,
     approved_by: str = "Human Manager"
 ) -> dict | None:
@@ -64,24 +126,45 @@ async def run_purchasing_agent(
     """
     print(f"\n[Agent 2 - Purchasing] LLM deciding actions to draft Purchase Order...")
 
-    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
-    llm_with_tools = llm.bind_tools([draft_po_tool])
+    if ChatGroq is None:
+        print("  [Agent 2] LangChain Groq unavailable; drafting PO deterministically.")
+        try:
+            from fastmcp import Client
+            async with Client(ERP_SERVER) as erp:
+                draft_result = await erp.call_tool(
+                    "draft_po",
+                    {
+                        "supplier_id": supplier_id,
+                        "requirement_id": requirement_id,
+                        "qty": qty,
+                        "total_value": total_value,
+                    }
+                )
+            po_data = draft_result.data if hasattr(draft_result, "data") else draft_result
+            if isinstance(po_data, dict) and "result" in po_data:
+                po_data = po_data["result"]
+        except Exception as error:
+            print(f"  [Agent 2] MCP unavailable ({error}); drafting PO in SQLite directly.")
+            po_data = _draft_po_in_sqlite(supplier_id, requirement_id, qty, total_value)
+    else:
+        llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
+        llm_with_tools = llm.bind_tools([draft_po_tool])
 
-    prompt = f"Please draft a purchase order for supplier_id {supplier_id} (name: {supplier_name}) for requirement_id {requirement_id} with quantity {qty} and total cost {total_value}."
+        prompt = f"Please draft a purchase order for supplier_id {supplier_id} (name: {supplier_name}) for requirement_id {requirement_id} with quantity {qty} and total cost {total_value}."
 
-    # Step 1: LLM decides to call tool
-    msg = await llm_with_tools.ainvoke([HumanMessage(content=prompt)])
-    
-    po_data = None
-    
-    if msg.tool_calls:
-        tool_call = msg.tool_calls[0]
-        print(f"  [Agent 2] LLM called tool: {tool_call['name']} with args {tool_call['args']}")
-        
-        # Step 2: Execute tool
-        tool_result = await draft_po_tool.ainvoke(tool_call['args'])
-        po_data = json.loads(tool_result)
-        
+        # Step 1: LLM decides to call tool
+        msg = await llm_with_tools.ainvoke([HumanMessage(content=prompt)])
+
+        po_data = None
+
+        if msg.tool_calls:
+            tool_call = msg.tool_calls[0]
+            print(f"  [Agent 2] LLM called tool: {tool_call['name']} with args {tool_call['args']}")
+
+            # Step 2: Execute tool
+            tool_result = await draft_po_tool.ainvoke(tool_call['args'])
+            po_data = json.loads(tool_result)
+
     if not po_data or "error" in po_data:
         print(f"  [Agent 2] Error drafting PO: {po_data.get('error', 'No data returned by LLM tool')}")
         return None
@@ -102,6 +185,17 @@ async def run_purchasing_agent(
   |  Status     : Pending Approval               |
   +==============================================+""")
 
+    if draft_only:
+        print("  [Draft-only mode] PO is waiting for human approval.")
+        return {
+            "po_id":       po_id,
+            "status":      "pending_approval",
+            "approved_by": None,
+            "supplier_id": supplier_id,
+            "qty":         qty,
+            "total_value": total_value,
+        }
+
     if auto_approve:
         decision = "approve"
         print(f"  [Auto-approve mode] Decision: approve")
@@ -114,16 +208,20 @@ async def run_purchasing_agent(
     # Step 4a: Approved → call approve_po
     # ------------------------------------------------------------------
     if decision == "approve":
-        from fastmcp import Client
-        async with Client(ERP_SERVER) as erp:
-            approve_result = await erp.call_tool(
-                "approve_po",
-                {"po_id": po_id, "approved_by": approved_by}
-            )
+        try:
+            from fastmcp import Client
+            async with Client(ERP_SERVER) as erp:
+                approve_result = await erp.call_tool(
+                    "approve_po",
+                    {"po_id": po_id, "approved_by": approved_by}
+                )
 
-        approved = approve_result.data if hasattr(approve_result, "data") else approve_result
-        if isinstance(approved, dict) and "result" in approved:
-            approved = approved["result"]
+            approved = approve_result.data if hasattr(approve_result, "data") else approve_result
+            if isinstance(approved, dict) and "result" in approved:
+                approved = approved["result"]
+        except Exception as error:
+            print(f"  [Agent 2] MCP unavailable ({error}); approving PO in SQLite directly.")
+            approved = _approve_po_in_sqlite(po_id, approved_by)
 
         print(f"\n  [Agent 2] [OK] PO #{po_id} approved by {approved_by}.")
         print(f"  Handing off to Freight Booking Agent...")

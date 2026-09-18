@@ -1176,21 +1176,157 @@ function formatStatus(status) {
 ============================================================ */
 
 function OmniProcurementCard({ data }) {
+  const supplier = data.supplier || {}
+  const po = data.po || {}
+  const [status, setStatus] = useState(data.status || 'unknown')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [actionResult, setActionResult] = useState(null)
+  const [actionError, setActionError] = useState('')
+  const isAwaitingApproval = status === 'awaiting_approval'
+
+  async function handleApprove() {
+    if (!data.run_id || isSubmitting) {
+      return
+    }
+
+    setIsSubmitting(true)
+    setActionError('')
+
+    try {
+      const result = await supplyChainApi.approvePo(data.run_id, 'Human Manager')
+      setStatus('completed')
+      setActionResult({
+        type: 'approved',
+        message: 'Approved. Freight booking has been started for this purchase order.',
+        details: result,
+      })
+    } catch (error) {
+      setActionError(error.message || 'Could not approve this purchase order.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleReject() {
+    if (!data.run_id || isSubmitting) {
+      return
+    }
+
+    setIsSubmitting(true)
+    setActionError('')
+
+    try {
+      await supplyChainApi.rejectPo(data.run_id)
+      setStatus('rejected')
+      setActionResult({
+        type: 'rejected',
+        message: 'Rejected. I stopped this procurement pipeline.',
+      })
+    } catch (error) {
+      setActionError(error.message || 'Could not reject this purchase order.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
+    <div className="mt-4 overflow-hidden rounded-2xl border border-[#e7dcc7] bg-white text-sm text-slate-700 shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-[#fffaf2] px-4 py-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[#a76913]">Procurement run</p>
+          <p className="mt-1 font-semibold text-slate-900">
+            {supplier.supplier_name || 'Supplier selected'}
+          </p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+          isAwaitingApproval
+            ? 'bg-amber-100 text-amber-700'
+            : status === 'failed'
+              ? 'bg-red-100 text-red-700'
+              : 'bg-emerald-100 text-emerald-700'
+        }`}>
+          {formatStatus(status)}
+        </span>
+      </div>
 
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <div className="grid gap-3 p-4 md:grid-cols-2">
+        <Detail label="Run ID" value={data.run_id || '-'} />
+        <Detail label="Material Type" value={formatStatus(data.material_type || 'unknown')} />
+        <Detail label="Supplier" value={supplier.supplier_name || '-'} />
+        <Detail label="Country" value={supplier.country || '-'} />
+        <Detail label="Rating" value={supplier.rating !== undefined ? Number(supplier.rating).toFixed(1) : '-'} />
+        <Detail label="Lead Time" value={supplier.lead_time_days ? `${supplier.lead_time_days} days` : '-'} />
+        <Detail label="PO ID" value={po.po_id ? `#${po.po_id}` : '-'} />
+        <Detail label="PO Status" value={formatStatus(po.status || status)} />
+        <Detail label="Quantity" value={data.qty ? Number(data.qty).toLocaleString() : po.qty ? Number(po.qty).toLocaleString() : '-'} />
+        <Detail label="Total Value" value={data.total_value ? `LKR ${Number(data.total_value).toLocaleString()}` : '-'} />
+      </div>
 
-      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
-        Procurement result (placeholder view)
-      </p>
+      {supplier.compliance_proof && (
+        <div className="border-t border-slate-100 px-4 py-3">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Compliance proof</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">{supplier.compliance_proof}</p>
+        </div>
+      )}
 
-      <pre className="whitespace-pre-wrap break-words text-xs text-slate-600">
-        {JSON.stringify(data, null, 2)}
-      </pre>
+      {isAwaitingApproval && (
+        <div className="border-t border-slate-100 bg-[#fffaf2] px-4 py-4">
+          <p className="text-sm font-semibold text-slate-900">
+            Ready for your approval
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Authorize this PO to continue with freight booking, or reject it to stop the pipeline.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleApprove}
+              disabled={isSubmitting}
+              className="rounded-lg bg-[#1f3a36] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#274a44] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? 'Working...' : 'Authorize PO'}
+            </button>
+            <button
+              type="button"
+              onClick={handleReject}
+              disabled={isSubmitting}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      )}
 
+      {actionResult && (
+        <div className={`border-t px-4 py-3 text-xs ${
+          actionResult.type === 'approved'
+            ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
+            : 'border-red-100 bg-red-50 text-red-700'
+        }`}>
+          <p className="font-semibold">{actionResult.message}</p>
+          {actionResult.details?.shipment_id && (
+            <p className="mt-1">
+              Shipment #{actionResult.details.shipment_id}
+              {actionResult.details.carrier ? ` with ${actionResult.details.carrier}` : ''}
+              {actionResult.details.eta ? `, ETA ${actionResult.details.eta}` : ''}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {actionError && (
+        <div className="border-t border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
+          {actionError}
+        </div>
+      )}
+
+      {data.error && (
+        <div className="border-t border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
+          {data.error}
+        </div>
+      )}
     </div>
-
   )
 }
 
