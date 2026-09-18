@@ -13,15 +13,16 @@ ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 load_dotenv(ENV_PATH)
 
 MONGO_URI = os.getenv("MONGO_URI")
+DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 
 
 # ============================================================
 # MONGODB
 # ============================================================
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
-db = client["OMNI_DB"]
+db = client[DATABASE_NAME]
 
 inventory_collection = db["inventory"]
 
