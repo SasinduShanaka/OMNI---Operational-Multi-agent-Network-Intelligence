@@ -16,6 +16,7 @@ ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 load_dotenv(ENV_PATH)
 
 MONGO_URI = os.getenv("MONGO_URI")
+DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 
 if not MONGO_URI:
     raise ValueError("MONGO_URI not found in backend/.env")
@@ -25,9 +26,9 @@ if not MONGO_URI:
 # 2. Connect to MongoDB
 # --------------------------------------------------
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
-db = client["OMNI_DB"]
+db = client[DATABASE_NAME]
 
 print("Connected to MongoDB successfull!")
 
@@ -617,7 +618,7 @@ print(f"Inserted {len(agent_activity)} agent activity records.")
 print("\n----------------------------------")
 print("OMNI DATABASE SEEDING COMPLETE!")
 print("----------------------------------")
-print("Database: OMNI_DB")
+print(f"Database: {DATABASE_NAME}")
 print("Synthetic garment data inserted successfully.")
 
 client.close()
