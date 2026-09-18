@@ -95,8 +95,8 @@ async def node_draft_po(state: PipelineState) -> PipelineState:
             requirement_id=state["requirement_id"],
             qty=state["qty"],
             total_value=state["total_value"],
-            auto_approve=True,          # Draft only — approval via API
-            approved_by="__draft__"     # Sentinel: not yet approved
+            draft_only=True,
+            auto_approve=False,
         )
         if not po:
             return {**state, "status": "failed", "error": "PO draft failed.", "po": None}
