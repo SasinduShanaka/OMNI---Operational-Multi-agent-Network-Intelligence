@@ -9,9 +9,17 @@ import os
 import sys
 import json
 from datetime import date, timedelta
-from langchain_groq import ChatGroq
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage
+try:
+    from langchain_groq import ChatGroq
+    from langchain_core.tools import tool
+    from langchain_core.messages import HumanMessage
+except ImportError:
+    ChatGroq = None
+
+    def tool(func):
+        return func
+
+    HumanMessage = None
 
 # ------------------------------------------------------------------
 # Paths
@@ -75,6 +83,46 @@ async def run_freight_agent(
     
     eta = (date.today() + timedelta(days=lead_time_days)).isoformat()
 
+    if ChatGroq is None:
+        print("  [Agent 3] LangChain Groq unavailable; booking cheapest carrier deterministically.")
+        from fastmcp import Client
+
+        mode = "air" if lead_time_days <= AIR_THRESHOLD_DAYS else "sea"
+        async with Client(TMS_SERVER) as tms:
+            carriers_result = await tms.call_tool("get_carriers", {"mode": mode})
+            carriers = carriers_result.data if hasattr(carriers_result, "data") else carriers_result
+            if isinstance(carriers, dict) and "result" in carriers:
+                carriers = carriers["result"]
+            if not carriers:
+                return None
+
+            carrier = min(carriers, key=lambda item: item.get("rate_per_unit", 0))
+            booking_result = await tms.call_tool("book_shipment", {
+                "po_id": po_id,
+                "carrier_id": carrier["carrier_id"],
+                "mode": mode,
+                "origin": origin,
+                "destination": destination,
+                "eta": eta,
+            })
+
+        booking = booking_result.data if hasattr(booking_result, "data") else booking_result
+        if isinstance(booking, dict) and "result" in booking:
+            booking = booking["result"]
+        if not booking or "error" in booking:
+            return None
+
+        return {
+            "shipment_id": booking["shipment_id"],
+            "carrier_name": carrier["name"],
+            "carrier_id": carrier["carrier_id"],
+            "mode": mode,
+            "origin": origin,
+            "destination": destination,
+            "eta": eta,
+            "status": "booked",
+        }
+
     llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
     llm_with_tools = llm.bind_tools([get_carriers_tool, book_shipment_tool])
 
@@ -117,9 +165,9 @@ You are a Freight Booking Agent.
             shipment_id = booking["shipment_id"]
             mode = book_call['args']['mode']
             
-            print(f"\n  [Agent 3] ✅ Shipment #{shipment_id} booked.")
+            print(f"\n  [Agent 3] Shipment #{shipment_id} booked.")
             print(f"  Mode    : {mode}")
-            print(f"  Route   : {origin} → {destination}")
+            print(f"  Route   : {origin} -> {destination}")
             print(f"  ETA     : {eta}")
 
             return {
