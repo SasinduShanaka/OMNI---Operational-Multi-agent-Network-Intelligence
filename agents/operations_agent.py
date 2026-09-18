@@ -3,9 +3,15 @@ import json
 import re
 
 from datetime import datetime
+from typing import Literal, TypedDict
 
 from dotenv import load_dotenv
-from groq import Groq
+from langgraph.graph import END, StateGraph
+
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 from agents.inventory_agent import (
     get_all_inventory,
@@ -27,6 +33,7 @@ from agents.production_agent import (
     identify_bottlenecks,
     get_production_orders,
     get_production_kpis,
+    get_product_materials,
     check_production_feasibility,
 )
 
@@ -44,18 +51,225 @@ load_dotenv(ENV_PATH)
 # GROQ CLIENT
 # ============================================================
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
+client = Groq(api_key=os.getenv("GROQ_API_KEY")) if Groq and os.getenv("GROQ_API_KEY") else None
 
 MODEL_NAME = "openai/gpt-oss-20b"
+
+
+INVENTORY_INTENTS = {
+    "inventory_list",
+    "low_stock",
+    "out_of_stock",
+    "healthy_stock",
+    "material_status",
+    "inventory_requirement",
+    "reorder_requirements",
+    "total_stock",
+    "inventory_summary",
+    "largest_shortages",
+    "inventory_kpis",
+}
+
+PRODUCTION_INTENTS = {
+    "production_feasibility",
+    "production_lines",
+    "production_bottleneck",
+    "production_status",
+    "production_kpis",
+    "product_materials",
+}
+
+
+class OperationsState(TypedDict, total=False):
+    user_request: str
+    decision: dict
+    route: Literal["inventory", "forecast", "production", "planning", "procurement", "unknown"]
+    response: dict
+    product_name: str | None
+    sku: str | None
+    required_quantity: float | None
+    required_date: str | None
+    production: dict
+    forecast: dict
+    procurement: list[dict]
+    risks: list[str]
 
 
 # ============================================================
 # 1. UNDERSTAND USER REQUEST
 # ============================================================
 
+def _extract_common_entities(user_request: str) -> dict:
+    sku_match = re.search(r"\bGAR-\d{3}\b", user_request, re.IGNORECASE)
+    material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG)-\d{3}\b", user_request, re.IGNORECASE)
+    quantity_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", user_request)
+
+    return {
+        "material_name": None,
+        "material_code": material_code_match.group().upper() if material_code_match else None,
+        "product_name": None,
+        "sku": sku_match.group().upper() if sku_match else None,
+        "required_quantity": float(quantity_match.group(1).replace(",", "")) if quantity_match else None,
+        "required_date": _extract_date(user_request),
+    }
+
+
+def _extract_date(user_request: str) -> str | None:
+    from calendar import monthrange
+    from datetime import timedelta
+
+    text = user_request.lower()
+    today = datetime.now().date()
+
+    if "month end" in text or "end of month" in text:
+        last_day = monthrange(today.year, today.month)[1]
+        return today.replace(day=last_day).isoformat()
+
+    if "next month" in text:
+        month = today.month + 1
+        year = today.year
+        if month == 13:
+            month = 1
+            year += 1
+        day = min(today.day, monthrange(year, month)[1])
+        return today.replace(year=year, month=month, day=day).isoformat()
+
+    week_match = re.search(r"in\s+(\d+)\s+weeks?", text)
+    if week_match:
+        return (today + timedelta(days=int(week_match.group(1)) * 7)).isoformat()
+
+    iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+    if iso_match:
+        return iso_match.group(1)
+
+    return None
+
+
+def _heuristic_understand_request(user_request: str) -> dict:
+    text = user_request.lower()
+    entities = _extract_common_entities(user_request)
+
+    material_names = {
+        "black cotton fabric": "Black Cotton Fabric",
+        "white cotton fabric": "White Cotton Fabric",
+        "navy cotton fabric": "Navy Cotton Fabric",
+        "grey fleece fabric": "Grey Fleece Fabric",
+        "gray fleece fabric": "Grey Fleece Fabric",
+        "pink rayon fabric": "Pink Rayon Fabric",
+        "blue denim fabric": "Blue Denim Fabric",
+        "polyester fabric": "Polyester Fabric",
+        "black sewing thread": "Black Sewing Thread",
+        "white sewing thread": "White Sewing Thread",
+        "polo buttons": "Polo Buttons",
+        "garment labels": "Garment Labels",
+        "garment packaging": "Garment Packaging",
+    }
+
+    product_names = {
+        "black polo": "Classic Black Polo",
+        "black polos": "Classic Black Polo",
+        "polo": "Classic Black Polo",
+        "t-shirt": "White Cotton T-Shirt",
+        "t shirt": "White Cotton T-Shirt",
+        "formal shirt": "Navy Formal Shirt",
+        "hoodie": "Grey Hoodie",
+        "hoodies": "Grey Hoodie",
+        "casual top": "Women's Casual Top",
+        "denim shirt": "Blue Denim Shirt",
+        "sports t-shirt": "Green Sports T-Shirt",
+        "cargo pants": "Beige Cargo Pants",
+    }
+
+    for needle, value in material_names.items():
+        if needle in text:
+            entities["material_name"] = value
+            break
+
+    for needle, value in product_names.items():
+        if needle in text:
+            entities["product_name"] = value
+            break
+
+    material_request = any(word in text for word in (
+        "material",
+        "materials",
+        "component",
+        "components",
+        "bom",
+        "bill of material",
+        "fabric",
+        "cotton",
+        "cloth",
+        "meter",
+        "yard",
+        "dye",
+        "zipper",
+        "button",
+        "trim",
+    ))
+    product_material_question = (
+        (entities["product_name"] or entities["sku"])
+        and material_request
+        and any(phrase in text for phrase in (
+            "what material",
+            "which material",
+            "materials use",
+            "material use",
+            "materials used",
+            "material used",
+            "bill of material",
+            "bom",
+            "what do we use",
+            "what is the material",
+        ))
+    )
+
+    if any(word in text for word in ("forecast", "forcast", "predict", "prediction", "future demand", "demand outlook")):
+        intent = "demand_forecast"
+    elif product_material_question:
+        intent = "product_materials"
+    elif any(word in text for word in ("buy", "order", "source", "procure", "supplier", "purchase")) or ("need" in text and material_request):
+        intent = "procurement"
+    elif any(word in text for word in ("can we make", "produce", "manufacture", "feasible", "fulfill order", "deliver")):
+        intent = "production_feasibility"
+    elif any(word in text for word in ("production line", "capacity", "line planning")):
+        intent = "production_lines"
+    elif any(word in text for word in ("bottleneck", "overloaded", "constrained")):
+        intent = "production_bottleneck"
+    elif any(word in text for word in ("production kpi", "line utilization", "production performance")):
+        intent = "production_kpis"
+    elif any(word in text for word in ("production status", "production orders", "progress")):
+        intent = "production_status"
+    elif any(word in text for word in ("low stock", "below", "running low", "replenishment", "needs attention")):
+        intent = "low_stock"
+    elif any(word in text for word in ("out of stock", "zero stock", "unavailable")):
+        intent = "out_of_stock"
+    elif any(word in text for word in ("healthy", "enough stock", "stock ok")) and not entities["required_quantity"]:
+        intent = "healthy_stock"
+    elif any(word in text for word in ("reorder", "need to buy", "replenish")):
+        intent = "reorder_requirements"
+    elif any(word in text for word in ("total inventory", "total stock")):
+        intent = "total_stock"
+    elif any(word in text for word in ("inventory kpi", "inventory performance", "inventory statistics")):
+        intent = "inventory_kpis"
+    elif any(word in text for word in ("inventory overview", "inventory health", "stock health")):
+        intent = "inventory_summary"
+    elif "shortage" in text or "shortages" in text:
+        intent = "largest_shortages"
+    elif entities["material_name"] or entities["material_code"]:
+        intent = "inventory_requirement" if entities["required_quantity"] else "material_status"
+    elif any(word in text for word in ("inventory", "stock", "materials", "fabric stock")):
+        intent = "inventory_list"
+    else:
+        intent = "unknown"
+
+    return {"intent": intent, **entities}
+
+
 def understand_request(user_request: str):
+
+    if client is None:
+        return _heuristic_understand_request(user_request)
 
     # The model has no clock, so today's date is supplied
     # explicitly to let it resolve deadlines like "by September 30".
@@ -238,7 +452,18 @@ predict sales
 estimate demand
 demand prediction
 
-19. unknown
+19. product_materials
+
+Use when the user asks what materials, components or BOM
+are used to make a finished product.
+
+Examples:
+- what materials do we use for Classic Black Polo?
+- what is the material used in GAR-001?
+- show the BOM for black polos
+- which components are needed for hoodies?
+
+20. unknown
 
 Use only when the request is clearly unrelated
 to inventory, production, procurement, forecasting or operations.
@@ -266,6 +491,9 @@ is procurement.
 
 "What will demand look like next month?"
 is demand_forecast.
+
+"What materials do we use for Classic Black Polo?"
+is product_materials.
 
 IMPORTANT:
 
@@ -414,11 +642,113 @@ def clean_response(text):
     return text
 
 
+def _format_count(value, decimals=0):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+    if decimals == 0:
+        return f"{number:,.0f}"
+
+    return f"{number:,.{decimals}f}"
+
+
+def _friendly_status(status):
+    labels = {
+        "FEASIBLE": "we can do it",
+        "AT_RISK": "we can try, but there are risks",
+        "INFEASIBLE": "not with the current plan",
+        "NOT_FOUND": "I could not find that product",
+        "NO_LINE": "there is no production line set up for it",
+    }
+    return labels.get(str(status).upper(), str(status).replace("_", " ").lower())
+
+
+def _friendly_date(value):
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.strptime(str(value), "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return str(value)
+
+    return parsed.strftime("%b %d, %Y")
+
+
+def _unit_phrase(quantity, unit):
+    label = str(unit or "units")
+
+    try:
+        number = float(quantity)
+    except (TypeError, ValueError):
+        return label
+
+    if number == 1 and label.endswith("s"):
+        return label[:-1]
+
+    return label
+
+
+def generate_deterministic_response(user_request, data, source_agent="Inventory Agent"):
+    if source_agent == "Forecast Agent":
+        if isinstance(data, dict) and data.get("status") == "success":
+            return (
+                f"I expect around {_format_count(data['forecast'], 2)} units of "
+                f"{data['product_name']} ({data['sku']}) for {data['forecast_period']}. "
+                f"Demand is trending {data['trend'].lower()}, so I would use this as the planning baseline. "
+                f"{data['recommendation']}"
+            )
+        return data.get("message", "I could not create a reliable forecast from the available demand history.") if isinstance(data, dict) else "I could not create a reliable forecast from the available demand history."
+
+    if source_agent == "Production Agent":
+        if isinstance(data, dict) and "status" in data:
+            factors = data.get("factors", [])
+            factor_text = " ".join(factors[:4])
+            return f"My read is: {_friendly_status(data['status'])}. {data.get('message', '')} {factor_text}".strip()
+        if isinstance(data, list):
+            return f"I found {len(data)} production record(s) for this request."
+
+    if isinstance(data, list):
+        if not data:
+            return "No matching records were found."
+        low = [item for item in data if item.get("status") == "LOW_STOCK"]
+        if low:
+            return f"I found {len(low)} material(s) that need attention out of {len(data)} inventory record(s)."
+        return f"I found {len(data)} inventory material record(s)."
+
+    if isinstance(data, dict):
+        if data.get("status") == "SHORTAGE":
+            return (
+                f"No. {data['material_name']} has {data['available_quantity']:,.0f} {data['unit']} available, "
+                f"but {data['required_quantity']:,.0f} {data['unit']} are required. "
+                f"The shortage is {data['shortage']:,.0f} {data['unit']}."
+            )
+        if data.get("status") == "SUFFICIENT":
+            return (
+                f"Yes. {data['material_name']} has {data['available_quantity']:,.0f} {data['unit']} available, "
+                f"which covers the required {data['required_quantity']:,.0f} {data['unit']}."
+            )
+        if "inventory_health" in data:
+            return (
+                f"Inventory health is {data['inventory_health'].lower()}. "
+                f"{data['healthy_materials']} materials are healthy and {data['low_stock_materials']} are low."
+            )
+        if "total_stock" in data:
+            return f"Total inventory is {data['total_stock']:,.0f} units across {data['material_count']} materials."
+
+    return "The requested agent completed the task and returned data for review."
+
+
 # ============================================================
 # 3. GENERATE HUMAN-FRIENDLY RESPONSE
 # ============================================================
 
 def generate_final_response(user_request, inventory_data, source_agent="Inventory Agent"):
+
+    if client is None:
+        return generate_deterministic_response(user_request, inventory_data, source_agent)
 
     prompt = f"""
 You are the Operations Agent of OMNI.
@@ -527,7 +857,7 @@ Return only the final natural-language answer.
 # 4. PROCESS INVENTORY REQUEST
 # ============================================================
 
-def process_request(user_request: str):
+def _execute_specialist_request(user_request: str):
 
     # --------------------------------------------------------
     # Understand the user's request
@@ -1165,11 +1495,110 @@ def process_request(user_request: str):
             "status": "success",
             "workflow": [
                 "Operations Agent",
-                "Supply Chain Agent"
+                "Supply Chain Agent",
+                "Sourcing Agent",
+                "Purchasing Agent"
             ],
             "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
             "data": result,
             "user_request": user_request
+        }
+
+    # ========================================================
+    # PRODUCT MATERIALS / BILL OF MATERIALS
+    # ========================================================
+
+    if intent == "product_materials":
+
+        if not sku and not product_name:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Product Materials Lookup",
+                "delegated_to": "Production Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "missing_product",
+                "workflow": [
+                    "Operations Agent"
+                ],
+                "answer": "Which product should I check the materials for?"
+            }
+
+        quantity = required_quantity or 1
+
+        try:
+            quantity = float(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        material_data = get_product_materials(
+            sku=sku,
+            product_name=product_name,
+            quantity=quantity,
+        )
+
+        if material_data.get("status") == "NOT_FOUND":
+            return {
+                "agent": "Operations Agent",
+                "task": "Product Materials Lookup",
+                "delegated_to": "Production Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "not_found",
+                "workflow": [
+                    "Operations Agent",
+                    "Production Agent"
+                ],
+                "answer": "I couldn't find that product in our catalogue. Please check the product name or SKU.",
+                "result": material_data,
+            }
+
+        if material_data.get("status") == "NO_BOM":
+            return {
+                "agent": "Operations Agent",
+                "task": "Product Materials Lookup",
+                "delegated_to": "Production Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "no_bom",
+                "workflow": [
+                    "Operations Agent",
+                    "Production Agent"
+                ],
+                "answer": "I found the product, but there is no bill of materials configured for it yet.",
+                "result": material_data,
+            }
+
+        material_lines = [
+            (
+                f"{item.get('material_name') or item.get('material_code')} "
+                f"({_format_count(item.get('qty_per_unit'), 2).rstrip('0').rstrip('.')} "
+                f"{_unit_phrase(item.get('qty_per_unit'), item.get('unit'))} per unit)"
+            )
+            for item in material_data.get("materials", [])
+        ]
+        product_label = f"{material_data['product_name']} ({material_data['sku']})"
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Product Materials Lookup",
+            "delegated_to": "Production Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Production Agent",
+                "Inventory Agent"
+            ],
+            "answer": (
+                f"Sure. {product_label} is made with "
+                + ", ".join(material_lines[:-1])
+                + (f", and {material_lines[-1]}" if len(material_lines) > 1 else material_lines[0])
+                + ". I also checked inventory for those materials while pulling the BOM."
+            ),
+            "result": material_data,
         }
 
     # ========================================================
@@ -1501,3 +1930,375 @@ def process_request(user_request: str):
             "whether we can manufacture an order by a given date."
         )
     }
+
+
+# ============================================================
+# LANGGRAPH OPERATIONS ORCHESTRATOR
+# ============================================================
+
+def _route_from_intent(intent: str) -> str:
+    if intent == "production_feasibility":
+        return "planning"
+    if intent in INVENTORY_INTENTS:
+        return "inventory"
+    if intent == "demand_forecast":
+        return "forecast"
+    if intent in PRODUCTION_INTENTS:
+        return "production"
+    if intent == "procurement":
+        return "procurement"
+    return "unknown"
+
+
+def _node_classify(state: OperationsState) -> OperationsState:
+    decision = understand_request(state["user_request"])
+    route = _route_from_intent(decision.get("intent", "unknown"))
+    return {**state, "decision": decision, "route": route}
+
+
+def _node_inventory(state: OperationsState) -> OperationsState:
+    response = _execute_specialist_request(state["user_request"])
+    response["graph"] = ["Operations Agent", "Inventory Agent"]
+    return {**state, "response": response}
+
+
+def _node_forecast(state: OperationsState) -> OperationsState:
+    response = _execute_specialist_request(state["user_request"])
+    response["graph"] = ["Operations Agent", "Forecast Agent"]
+    return {**state, "response": response}
+
+
+def _node_production(state: OperationsState) -> OperationsState:
+    response = _execute_specialist_request(state["user_request"])
+    response["graph"] = response.get("workflow", ["Operations Agent", "Production Agent"])
+    return {**state, "response": response}
+
+
+def _node_prepare_plan(state: OperationsState) -> OperationsState:
+    decision = state.get("decision") or {}
+    quantity = decision.get("required_quantity")
+    try:
+        quantity = float(quantity) if quantity is not None else None
+    except (TypeError, ValueError):
+        quantity = None
+
+    return {
+        **state,
+        "product_name": decision.get("product_name"),
+        "sku": decision.get("sku"),
+        "required_quantity": quantity,
+        "required_date": decision.get("required_date"),
+        "risks": [],
+        "procurement": [],
+    }
+
+
+def _node_production_evidence(state: OperationsState) -> OperationsState:
+    if not state.get("sku") and not state.get("product_name"):
+        return {
+            **state,
+            "production": {"status": "MISSING_PRODUCT", "message": "A product or SKU is required."},
+            "risks": [*state.get("risks", []), "Missing product details."],
+        }
+
+    if not state.get("required_quantity"):
+        return {
+            **state,
+            "production": {"status": "MISSING_QUANTITY", "message": "A required quantity is needed."},
+            "risks": [*state.get("risks", []), "Missing order quantity."],
+        }
+
+    if not state.get("required_date"):
+        return {
+            **state,
+            "production": {"status": "MISSING_DATE", "message": "A required date is needed."},
+            "risks": [*state.get("risks", []), "Missing required-by date."],
+        }
+
+    production = check_production_feasibility(
+        sku=state.get("sku"),
+        product_name=state.get("product_name"),
+        quantity=state["required_quantity"],
+        required_date=state["required_date"],
+    )
+
+    risks = list(state.get("risks", []))
+    if production.get("status") != "FEASIBLE":
+        risks.append(f"Production verdict is {production.get('status', 'unknown')}.")
+    for material in production.get("blocking_materials", []):
+        if material.get("status") == "SHORTAGE":
+            risks.append(
+                f"{material.get('material_name', material.get('material_code'))} short by "
+                f"{material.get('shortage', 0):,.0f} {material.get('unit', 'units')}."
+            )
+
+    return {
+        **state,
+        "sku": production.get("sku") or state.get("sku"),
+        "product_name": production.get("product_name") or state.get("product_name"),
+        "production": production,
+        "risks": risks,
+    }
+
+
+def _node_forecast_evidence(state: OperationsState) -> OperationsState:
+    sku = state.get("sku")
+    if not sku:
+        return {**state, "forecast": {"status": "skipped", "message": "Forecast skipped because SKU could not be resolved."}}
+
+    forecast = forecast_demand(sku, periods=3, save_audit=True)
+    risks = list(state.get("risks", []))
+    if forecast.get("status") == "success" and forecast.get("trend") == "Increasing":
+        risks.append(f"Demand trend for {sku} is increasing.")
+
+    return {**state, "forecast": forecast, "risks": risks}
+
+
+def _material_type_for_shortage(material_code: str | None, material_name: str | None = None) -> tuple[str, int, float]:
+    value = f"{material_code or ''} {material_name or ''}".lower()
+    if "dye" in value:
+        return "dye_house", 5, 260.0
+    if any(token in value for token in ("btn", "button", "zipper", "thr", "thread", "lbl", "label", "pkg", "packaging")):
+        return "trim_vendor", 4, 15.0
+    return "fabric_mill", 2, 260.0
+
+
+def _needs_procurement(state: OperationsState) -> str:
+    production = state.get("production") or {}
+    return "procurement_evidence" if production.get("blocking_materials") else "synthesize_plan"
+
+
+def _node_procurement_evidence(state: OperationsState) -> OperationsState:
+    import asyncio
+    from backend.supply_chain.orchestrator import start_pipeline
+
+    procurement_runs = []
+    seen_categories = set()
+
+    for material in (state.get("production") or {}).get("blocking_materials", []):
+        material_type, requirement_id, unit_cost = _material_type_for_shortage(
+            material.get("material_code"),
+            material.get("material_name"),
+        )
+        if material_type in seen_categories:
+            continue
+        seen_categories.add(material_type)
+
+        shortage = float(material.get("shortage") or 0)
+        qty = shortage if shortage > 0 else 300.0
+
+        try:
+            run = asyncio.run(start_pipeline(
+                material_type=material_type,
+                requirement_id=requirement_id,
+                qty=qty,
+                total_value=qty * unit_cost,
+                compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                destination="Colombo, LK",
+            ))
+            procurement_runs.append({
+                "material_code": material.get("material_code"),
+                "material_name": material.get("material_name"),
+                "shortage": shortage,
+                "run": run,
+            })
+        except Exception as error:
+            procurement_runs.append({
+                "material_code": material.get("material_code"),
+                "material_name": material.get("material_name"),
+                "shortage": shortage,
+                "error": str(error),
+            })
+
+    return {**state, "procurement": procurement_runs}
+
+
+def _node_synthesize_plan(state: OperationsState) -> OperationsState:
+    production = state.get("production") or {}
+    forecast = state.get("forecast") or {}
+    procurement = state.get("procurement") or []
+    risks = state.get("risks", [])
+
+    workflow = ["Operations Agent", "Production Agent", "Inventory Agent"]
+    if forecast:
+        workflow.insert(1, "Forecast Agent")
+    if procurement:
+        workflow.extend(["Supply Chain Agent", "Sourcing Agent", "Purchasing Agent"])
+
+    status = production.get("status", "unknown")
+    product_name = state.get("product_name") or state.get("sku") or "the requested product"
+    quantity = state.get("required_quantity") or 0
+    required_date = state.get("required_date")
+    status_label = _friendly_status(status)
+    deadline_text = f" by {_friendly_date(required_date)}" if required_date else ""
+
+    if status == "FEASIBLE":
+        answer_parts = [
+            f"Yes, we can produce {_format_count(quantity)} units of {product_name}{deadline_text}.",
+            "I checked the production plan and the required materials, and nothing critical is blocking it right now.",
+        ]
+    elif status == "AT_RISK":
+        answer_parts = [
+            f"We may be able to produce {_format_count(quantity)} units of {product_name}{deadline_text}, but I would not treat it as safe yet.",
+            "I found a few constraints that need action before we commit to the order.",
+        ]
+    elif status == "INFEASIBLE":
+        answer_parts = [
+            f"With the current setup, we cannot reliably produce {_format_count(quantity)} units of {product_name}{deadline_text}.",
+            "The plan needs capacity, timing, or material changes before it is realistic.",
+        ]
+    else:
+        answer_parts = [
+            f"I checked the plan for {_format_count(quantity)} units of {product_name}{deadline_text}.",
+            f"My current read is: {status_label}.",
+        ]
+
+    if forecast.get("status") == "success":
+        answer_parts.append(
+            f"Demand is also worth watching: the forecast is about {_format_count(forecast.get('forecast', 0))} units next period, and the trend is {forecast.get('trend', 'unknown').lower()}."
+        )
+
+    blocking = production.get("blocking_materials", [])
+    if blocking:
+        shortage_text = "; ".join(
+            f"{item.get('material_name', item.get('material_code'))} is short by {_format_count(item.get('shortage', 0))} {item.get('unit', 'units')}"
+            for item in blocking
+        )
+        answer_parts.append(f"The main material issue is this: {shortage_text}.")
+
+    drafted = [
+        item for item in procurement
+        if (item.get("run") or {}).get("status") == "awaiting_approval"
+    ]
+    if drafted:
+        answer_parts.append(
+            f"I have already asked Supply Chain to source the missing items and draft {len(drafted)} purchase order(s) for approval."
+        )
+    elif blocking:
+        answer_parts.append("I could not draft the purchase orders automatically, so the shortage details need manual review.")
+
+    if production.get("reallocation"):
+        answer_parts.append("There is also a possible production reallocation, but that should be approved by a manager before changing commitments.")
+
+    response = {
+        "agent": "Operations Agent",
+        "task": "Operational Multi-Agent Plan",
+        "delegated_to": "Multi-Agent Planning Graph",
+        "llm_used": client is not None,
+        "intent": "operational_plan",
+        "status": "success",
+        "workflow": workflow,
+        "answer": " ".join(answer_parts),
+        "requires_approval": bool(production.get("requires_approval") or drafted),
+        "risks": risks,
+        "result": {
+            "goal": state.get("user_request"),
+            "product_name": product_name,
+            "sku": state.get("sku"),
+            "required_quantity": quantity,
+            "required_date": state.get("required_date"),
+            "forecast": forecast,
+            "production": production,
+            "procurement": procurement,
+        },
+    }
+
+    response["graph"] = workflow
+    return {**state, "response": response}
+
+
+def _node_procurement(state: OperationsState) -> OperationsState:
+    try:
+        response = _execute_specialist_request(state["user_request"])
+    except ImportError as error:
+        response = {
+            "agent": "Operations Agent",
+            "task": "Procurement Request",
+            "delegated_to": "Supply Chain Agent",
+            "llm_used": client is not None,
+            "intent": "procurement",
+            "status": "dependency_missing",
+            "workflow": ["Operations Agent", "Supply Chain Agent"],
+            "answer": (
+                "The Operations Agent routed this to the Supply Chain Agent, "
+                f"but a required package is missing: {error}. Install the project requirements, "
+                "then retry the procurement workflow."
+            ),
+        }
+    response["graph"] = response.get("workflow", [
+        "Operations Agent",
+        "Supply Chain Agent",
+        "Sourcing Agent",
+        "Purchasing Agent",
+    ])
+    return {**state, "response": response}
+
+
+def _node_unknown(state: OperationsState) -> OperationsState:
+    response = _execute_specialist_request(state["user_request"])
+    response["graph"] = ["Operations Agent"]
+    return {**state, "response": response}
+
+
+def _select_next_node(state: OperationsState) -> str:
+    return state.get("route", "unknown")
+
+
+def build_operations_graph():
+    graph = StateGraph(OperationsState)
+    graph.add_node("classify", _node_classify)
+    graph.add_node("inventory", _node_inventory)
+    graph.add_node("forecast", _node_forecast)
+    graph.add_node("production", _node_production)
+    graph.add_node("prepare_plan", _node_prepare_plan)
+    graph.add_node("production_evidence", _node_production_evidence)
+    graph.add_node("forecast_evidence", _node_forecast_evidence)
+    graph.add_node("procurement_evidence", _node_procurement_evidence)
+    graph.add_node("synthesize_plan", _node_synthesize_plan)
+    graph.add_node("procurement", _node_procurement)
+    graph.add_node("unknown", _node_unknown)
+
+    graph.set_entry_point("classify")
+    graph.add_conditional_edges(
+        "classify",
+        _select_next_node,
+        {
+            "inventory": "inventory",
+            "forecast": "forecast",
+            "production": "production",
+            "planning": "prepare_plan",
+            "procurement": "procurement",
+            "unknown": "unknown",
+        },
+    )
+
+    graph.add_edge("prepare_plan", "production_evidence")
+    graph.add_edge("production_evidence", "forecast_evidence")
+    graph.add_conditional_edges(
+        "forecast_evidence",
+        _needs_procurement,
+        {
+            "procurement_evidence": "procurement_evidence",
+            "synthesize_plan": "synthesize_plan",
+        },
+    )
+    graph.add_edge("procurement_evidence", "synthesize_plan")
+    graph.add_edge("synthesize_plan", END)
+
+    for node in ("inventory", "forecast", "production", "procurement", "unknown"):
+        graph.add_edge(node, END)
+
+    return graph.compile()
+
+
+operations_graph = build_operations_graph()
+
+
+def process_request(user_request: str):
+    """Run the Operations Agent as a LangGraph supervisor over specialist agents."""
+    final_state = operations_graph.invoke({"user_request": user_request})
+    response = final_state["response"]
+    response["llm_used"] = client is not None
+    response.setdefault("orchestrator", "LangGraph")
+    response.setdefault("decision", final_state.get("decision"))
+    return response
