@@ -65,11 +65,24 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
   const [metrics, setMetrics] = useState({ suppliers: '—', pendingPos: '—', activeShipments: '—', delayed: '—' })
 
   const loadAllData = () => {
-    Promise.all([
+    setLoadingData(true)
+
+    Promise.allSettled([
       supplyChainApi.getSuppliers(),
       supplyChainApi.getPurchaseOrders(),
       supplyChainApi.getShipments(),
-    ]).then(([suppliers, pos, shipments]) => {
+    ]).then((results) => {
+      const [suppliersResult, posResult, shipmentsResult] = results
+      const suppliers = suppliersResult.status === 'fulfilled' ? suppliersResult.value : []
+      const pos = posResult.status === 'fulfilled' ? posResult.value : []
+      const shipments = shipmentsResult.status === 'fulfilled' ? shipmentsResult.value : []
+
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(['Suppliers', 'Purchase orders', 'Shipments'][index] + ' failed to load:', result.reason)
+        }
+      })
+
       setSuppliersData(suppliers)
       setPosData(pos)
       setShipmentsData(shipments)
@@ -79,9 +92,6 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
         activeShipments: shipments.filter(s => s.status !== 'delivered').length,
         delayed: shipments.filter(s => s.status === 'delayed').length,
       })
-      setLoadingData(false)
-    }).catch((e) => {
-      console.error(e)
       setLoadingData(false)
     })
   }
