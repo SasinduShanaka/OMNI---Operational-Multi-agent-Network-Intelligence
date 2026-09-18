@@ -474,6 +474,58 @@ def get_material_requirements(sku, quantity):
     return requirements
 
 
+def get_product_materials(sku=None, product_name=None, quantity=1):
+    """
+    Return the bill of materials for a finished product, enriched
+    with current inventory details for each material.
+    """
+
+    resolved_sku = resolve_sku(sku=sku, product_name=product_name)
+
+    if resolved_sku is None:
+        return {
+            "status": "NOT_FOUND",
+            "sku": sku,
+            "product_name": product_name,
+            "message": "Product was not found in the product master.",
+        }
+
+    product = products_collection.find_one({"sku": resolved_sku}, {"_id": 0})
+    requirements = get_material_requirements(resolved_sku, quantity or 1)
+
+    if not requirements:
+        return {
+            "status": "NO_BOM",
+            "sku": resolved_sku,
+            "product_name": product.get("name") if product else product_name,
+            "message": "No bill of materials is configured for this product.",
+            "materials": [],
+        }
+
+    materials = []
+
+    for requirement in requirements:
+        inventory = check_inventory_requirement(
+            material_code=requirement["material_code"],
+            required_quantity=requirement["required_quantity"],
+        )
+
+        materials.append({
+            **requirement,
+            "material_name": inventory.get("material_name"),
+            "available_quantity": inventory.get("available_quantity"),
+            "inventory_status": inventory.get("status"),
+        })
+
+    return {
+        "status": "success",
+        "sku": resolved_sku,
+        "product_name": product.get("name") if product else product_name,
+        "quantity": quantity or 1,
+        "materials": materials,
+    }
+
+
 # ============================================================
 # 8. CHECK CAPACITY
 # ============================================================
