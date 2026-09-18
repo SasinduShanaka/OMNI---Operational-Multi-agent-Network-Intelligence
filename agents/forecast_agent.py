@@ -13,8 +13,9 @@ from pymongo import MongoClient
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 MONGO_URI = os.getenv("MONGO_URI")
+DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000) if MONGO_URI else None
-db = mongo_client["OMNI_DB"] if mongo_client else None
+db = mongo_client[DATABASE_NAME] if mongo_client else None
 demand_collection = db["demand_history"] if db is not None else None
 activity_collection = db["agent_activity"] if db is not None else None
 
