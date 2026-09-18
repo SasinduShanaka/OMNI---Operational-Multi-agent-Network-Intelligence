@@ -84,6 +84,12 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# SQLite databases (all environments)
+*.db
+
+# ChromaDB vector store (generated, supply chain RAG)
+knowledge/supply_chain/rag/chroma_store/
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -309,3 +315,7 @@ public/
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+backend/.env
+
+# Local duplicate copy of the repo — never commit
+uniSlot/

@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
+import { supplyChainApi } from '../api/supplyChainApi'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
-function OperationsAgent({ chatState, setChatState }) {
+function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const { draft, messages, isAsking, error } = chatState
 
   function updateChatState(patch) {
@@ -43,11 +44,13 @@ function OperationsAgent({ chatState, setChatState }) {
         }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`)
-      }
-
       const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail?.message || data?.detail || `Request failed: ${response.status}`
+        )
+      }
 
       updateChatState({
         messages: [
@@ -63,11 +66,11 @@ function OperationsAgent({ chatState, setChatState }) {
         ],
         isAsking: false,
       })
-    } catch (error) {
-      console.error(error)
+    } catch (requestError) {
+      console.error(requestError)
 
       updateChatState({
-        error:
+        error: requestError.message ||
           'I could not connect to the Operations Agent. Please make sure the backend is running.',
         isAsking: false,
       })
@@ -85,7 +88,7 @@ function OperationsAgent({ chatState, setChatState }) {
     'Show me the full fabric stock list',
     'Which materials are below safety stock?',
     'How much Black Cotton Fabric is available?',
-    'Do we have enough fabric for the next production run?',
+    'Forecast demand for GAR-003 next month',
   ]
 
   return (
@@ -129,7 +132,7 @@ function OperationsAgent({ chatState, setChatState }) {
                 </h3>
 
                 <p className="text-sm text-slate-500 mt-2 leading-6">
-                  Ask about raw material availability,
+                  Ask about demand forecasts, raw material availability,
                   production shortages, line constraints,
                   or replenishment timing.
                 </p>
@@ -151,7 +154,7 @@ function OperationsAgent({ chatState, setChatState }) {
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse data={item.data} />
+                  <AgentResponse data={item.data} setActivePage={setActivePage} setScQuery={setScQuery} />
                 )}
 
               </div>
@@ -226,7 +229,7 @@ function OperationsAgent({ chatState, setChatState }) {
               onChange={(event) => updateChatState({ draft: event.target.value })}
               onKeyDown={handleKeyDown}
               disabled={isAsking}
-              placeholder="Ask about fabric, shortages, or production planning..."
+              placeholder="Ask about demand, fabric, shortages, or production planning..."
               className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#b87d39] focus:ring-2 focus:ring-[#d9a441]/20 transition"
             />
 
@@ -278,7 +281,7 @@ function UserMessage({ text }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data }) {
+function AgentResponse({ data, setActivePage, setScQuery }) {
   if (!data) {
     return null
   }
@@ -340,6 +343,27 @@ function AgentResponse({ data }) {
 
         </div>
 
+      )}
+
+
+      {/* ======================================================
+          PROCUREMENT
+      ====================================================== */}
+
+      {data.intent === 'procurement' && data.data && (
+        <OmniProcurementCard data={data.data} />
+      )}
+
+      {/* ======================================================
+          DEMAND FORECAST
+      ====================================================== */}
+
+      {data.intent === 'demand_forecast' && data.result && (
+        <ForecastCard result={data.result} />
+      )}
+
+      {data.intent === 'demand_forecast' && data.results && (
+        <ForecastList results={data.results} />
       )}
 
 
@@ -514,6 +538,46 @@ function AgentResponse({ data }) {
 
       </div>
 
+    </div>
+  )
+}
+
+
+/* ============================================================
+   FORECAST RESULTS
+============================================================ */
+
+function ForecastCard({ result }) {
+  return (
+    <div className="mt-4 rounded-xl border border-[#d9a441]/30 bg-[#fffaf2] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">{result.product_name}</p>
+          <p className="mt-1 text-xs text-slate-500">{result.sku} · {result.model}</p>
+        </div>
+        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">{result.trend}</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <div><p className="text-xs text-slate-500">Next-month forecast</p><p className="mt-1 text-lg font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p></div>
+        <div><p className="text-xs text-slate-500">History analyzed</p><p className="mt-1 text-lg font-semibold text-slate-900">{result.history_points} periods</p></div>
+      </div>
+    </div>
+  )
+}
+
+
+function ForecastList({ results }) {
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-100 px-4 py-3"><p className="text-sm font-semibold text-slate-800">Demand Forecast Agent results</p></div>
+      <div className="divide-y divide-slate-100">
+        {results.map((result) => (
+          <div key={result.sku} className="flex items-center justify-between gap-4 px-4 py-3">
+            <div><p className="text-sm font-medium text-slate-800">{result.product_name}</p><p className="mt-1 text-xs text-slate-500">{result.sku} · {result.trend}</p></div>
+            <div className="text-right"><p className="text-sm font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p><p className="mt-1 text-xs text-slate-500">next month</p></div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1099,5 +1163,35 @@ function formatStatus(status) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+
+/* ============================================================
+   OMNI PROCUREMENT CARD
+
+   NOTE: this component was left unfinished on the dev branch — the
+   file ended mid-comment here with no implementation, and
+   OmniProcurementCard was referenced above without ever being
+   imported or defined. This is a minimal fallback so a procurement
+   response renders instead of crashing with a ReferenceError.
+   Replace with the real UI once the intended design is available.
+============================================================ */
+
+function OmniProcurementCard({ data }) {
+
+  return (
+
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+
+      <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+        Procurement result (placeholder view)
+      </p>
+
+      <pre className="whitespace-pre-wrap break-words text-xs text-slate-600">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+
+    </div>
+
+  )
+}
 
 export default OperationsAgent
