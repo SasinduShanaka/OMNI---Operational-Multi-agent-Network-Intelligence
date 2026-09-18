@@ -266,7 +266,8 @@ async def list_suppliers():
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         rows = conn.execute(
             "SELECT supplier_id, name, country, category, lead_time_days, rating FROM suppliers ORDER BY rating DESC"
@@ -291,7 +292,8 @@ async def update_supplier(supplier_id: int, request: UpdateSupplierRequest):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         
         # Check if exists
@@ -325,7 +327,8 @@ async def delete_supplier(supplier_id: int):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         conn.execute("DELETE FROM suppliers WHERE supplier_id = ?", (supplier_id,))
         conn.commit()
@@ -349,7 +352,8 @@ async def manual_approve_po(po_id: int):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         conn.execute(
             "UPDATE purchase_orders SET status = 'approved', approved_by = 'Human Manager' WHERE po_id = ?",
@@ -370,7 +374,8 @@ async def manual_reject_po(po_id: int):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         conn.execute(
             "UPDATE purchase_orders SET status = 'rejected' WHERE po_id = ?",
@@ -391,7 +396,8 @@ async def delete_purchase_order(po_id: int):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         conn.execute("DELETE FROM purchase_orders WHERE po_id = ?", (po_id,))
         conn.commit()
@@ -409,7 +415,8 @@ async def list_purchase_orders():
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_erp_db_connection
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
         conn = get_erp_db_connection()
         rows = conn.execute(
             """
@@ -443,7 +450,8 @@ async def list_shipments():
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_tms_db_connection
+        from db import ensure_tms_db_ready, get_tms_db_connection
+        ensure_tms_db_ready()
         conn = get_tms_db_connection()
         rows = conn.execute(
             """
@@ -470,7 +478,8 @@ async def update_shipment_status_manual(shipment_id: int, request: UpdateShipmen
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_tms_db_connection
+        from db import ensure_tms_db_ready, get_tms_db_connection
+        ensure_tms_db_ready()
         conn = get_tms_db_connection()
         conn.execute(
             "UPDATE shipments SET status = ? WHERE shipment_id = ?",
@@ -491,7 +500,8 @@ async def delete_shipment(shipment_id: int):
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
         )
         sys.path.insert(0, DB_DIR)
-        from db import get_tms_db_connection
+        from db import ensure_tms_db_ready, get_tms_db_connection
+        ensure_tms_db_ready()
         conn = get_tms_db_connection()
         conn.execute("DELETE FROM shipments WHERE shipment_id = ?", (shipment_id,))
         conn.commit()
