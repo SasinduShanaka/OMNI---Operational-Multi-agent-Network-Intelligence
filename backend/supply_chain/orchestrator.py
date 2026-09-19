@@ -10,6 +10,7 @@ import asyncio
 import os
 import sys
 import uuid
+import time
 
 from typing import TypedDict, Any
 from langgraph.graph import StateGraph, END
@@ -67,18 +68,23 @@ class PipelineState(TypedDict, total=False):
 
 async def node_sourcing(state: PipelineState) -> PipelineState:
     print("\n[Orchestrator] -> Node: Sourcing")
+    start_time = time.time()
     targeted = state.get("targeted_supplier")
     try:
         supplier = await run_sourcing_agent(
             material_type=state["material_type"],
             requirement_id=state["requirement_id"],
-            compliance_keywords=state.get("compliance_keywords", ["Organic Cotton", "Child-Labor Free"]),
+            compliance_keywords=state.get("compliance_keywords", []),
             targeted_supplier=targeted,  # Scenario A: skip DB search if set
         )
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_sourcing took {elapsed:.2f} seconds.")
         if not supplier:
             return {**state, "status": "failed", "error": "No compliant supplier found.", "supplier": None}
         return {**state, "supplier": supplier, "status": "running"}
     except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_sourcing failed after {elapsed:.2f} seconds.")
         return {**state, "status": "failed", "error": f"Sourcing error: {e}", "supplier": None}
 
 
@@ -88,22 +94,51 @@ async def node_sourcing(state: PipelineState) -> PipelineState:
 
 async def node_draft_po(state: PipelineState) -> PipelineState:
     print("\n[Orchestrator] -> Node: Draft PO")
+    start_time = time.time()
     try:
-        po = await run_purchasing_agent(
-            supplier_id=state["supplier"]["supplier_id"],
-            supplier_name=state["supplier"]["supplier_name"],
-            requirement_id=state["requirement_id"],
-            qty=state["qty"],
-            total_value=state["total_value"],
-            draft_only=True,
-            auto_approve=False,
-        )
-        if not po:
-            return {**state, "status": "failed", "error": "PO draft failed.", "po": None}
+        from fastmcp import Client
+        MCP_DIR = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
+        ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
 
-        # Override status back to pending — real approval comes via /approve endpoint
-        return {**state, "po": {**po, "status": "pending_approval"}, "status": "awaiting_approval"}
+        import json
+        async with Client(ERP_SERVER) as erp:
+            draft_result = await erp.call_tool(
+                "draft_po",
+                {
+                    "supplier_id":    state["supplier"]["supplier_id"],
+                    "requirement_id": state["requirement_id"],
+                    "qty":            state["qty"],
+                    "total_value":    state["total_value"],
+                }
+            )
+
+        # Parse CallToolResult
+        result_text = draft_result.content[0].text if hasattr(draft_result, "content") else str(draft_result)
+        try:
+            draft_dict = json.loads(result_text)
+        except Exception:
+            draft_dict = draft_result if isinstance(draft_result, dict) else {"error": f"Failed to parse result: {result_text}"}
+
+        if "error" in draft_dict:
+            return {**state, "status": "failed", "error": draft_dict["error"], "po": None}
+
+        # Structure the po dict to match what run_purchasing_agent used to return
+        po = {
+            "po_id": draft_dict.get("po_id"),
+            "supplier_id": state["supplier"]["supplier_id"],
+            "supplier_name": state["supplier"]["supplier_name"],
+            "requirement_id": state["requirement_id"],
+            "qty": state["qty"],
+            "total_value": state["total_value"],
+            "status": "pending_approval"
+        }
+
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_draft_po took {elapsed:.2f} seconds.")
+        return {**state, "po": po, "status": "awaiting_approval"}
     except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_draft_po failed after {elapsed:.2f} seconds.")
         return {**state, "status": "failed", "error": f"PO draft error: {e}", "po": None}
 
 
@@ -113,6 +148,7 @@ async def node_draft_po(state: PipelineState) -> PipelineState:
 
 async def node_approve_and_ship(state: PipelineState) -> PipelineState:
     print("\n[Orchestrator] -> Node: Approve + Freight + Tracking")
+    start_time = time.time()
     try:
         from fastmcp import Client
         MCP_DIR = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
@@ -148,9 +184,13 @@ async def node_approve_and_ship(state: PipelineState) -> PipelineState:
             check_weather=False
         )
 
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_approve_and_ship took {elapsed:.2f} seconds.")
         return {**state, "po": approved_po, "shipment": shipment, "tracking": tracking, "status": "completed"}
 
     except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"[Timer] node_approve_and_ship failed after {elapsed:.2f} seconds.")
         return {**state, "status": "failed", "error": f"Approval/shipping error: {e}"}
 
 
