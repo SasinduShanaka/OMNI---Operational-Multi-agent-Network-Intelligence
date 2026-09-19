@@ -77,7 +77,7 @@ def analyze_demand_records(sku, records):
         issue("inconsistent_product_names", "warning", "This SKU has multiple product names: " + ", ".join(sorted(product_names)))
     for month, ids in sorted(monthly_rows.items()):
         if len(ids) > 1:
-            issue("multiple_records_per_month", "warning", f"{len(ids)} records are summed for this month. Review for duplicate monthly totals; separate demand contributions may be valid.", ids, month.isoformat()[:7])
+            issue("multiple_records_per_month", "error", f"Forecast blocked: {len(ids)} usable records exist for {month:%Y-%m}. Keep one verified monthly total for this product and month, then check again.", ids, month.isoformat()[:7])
     months = sorted(totals)
     missing = []
     if months:
@@ -92,7 +92,8 @@ def analyze_demand_records(sku, records):
         issue("insufficient_history", "error", f"At least {MIN_HISTORY_POINTS} usable months are required; found {len(months)}.")
     elif len(months) < 8:
         issue("limited_history", "warning", f"Only {len(months)} usable months ({len(months) - 2} backtest predictions). Validation evidence is limited.")
-    can_forecast = len(months) >= MIN_HISTORY_POINTS and not missing
+    has_duplicates = any(len(ids) > 1 for ids in monthly_rows.values())
+    can_forecast = len(months) >= MIN_HISTORY_POINTS and not missing and not has_duplicates
     quality = {"sku": sku, "status": "blocked" if not can_forecast else "needs_review" if issues else "passed",
                "records_checked": len(records), "invalid_records": len(invalid_ids),
                "valid_records": len(records) - len(invalid_ids), "usable_months": len(months),
@@ -138,8 +139,9 @@ def forecast_demand(sku: str, periods: int = 1, save_audit: bool = True) -> dict
     except Exception as error:
         return _error("data_access_error", f"Unable to retrieve demand history: {error}", normalized_sku)
     if not quality["can_forecast"]:
-        code = "not_found" if not history else "insufficient_history" if len(history) < MIN_HISTORY_POINTS else "missing_months"
-        message = next(item["message"] for item in quality["issues"] if item["code"] in {"insufficient_history", "missing_months"})
+        blocking_issue = next(item for item in quality["issues"] if item["code"] in {"multiple_records_per_month", "insufficient_history", "missing_months"})
+        code = "not_found" if not history else blocking_issue["code"]
+        message = blocking_issue["message"]
         return {**_error(code, message, normalized_sku, len(history)), "data_quality": quality}
 
     quantities = [record["quantity"] for record in history]
