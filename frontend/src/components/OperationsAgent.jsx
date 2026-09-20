@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
 import { supplyChainApi } from '../api/supplyChainApi'
+import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
+import ManagementReport from './ManagementReport'
+import ForecastPdfPreview from './ForecastPdfPreview'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -34,15 +37,44 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     })
 
     try {
-      const response = await fetch(`${API_BASE_URL}/ask`, {
+      if (isReportNavigationRequest(userMessage)) {
+        updateChatState({
+          messages: [...messages, { type: 'user', text: userMessage }, { type: 'agent', data: {
+            intent: 'report_navigation', status: 'success',
+            answer: 'Open Factory reports to view saved reports or set up a daily or monthly schedule with your preferred scope and time.',
+          } }],
+          isAsking: false,
+        })
+        return
+      }
+      const managementReport = isManagementReportRequest(userMessage)
+      if (!managementReport && isFollowupReport(userMessage)) {
+        const source = reportSource(messages)
+        updateChatState({
+          messages: [...messages, { type: 'user', text: userMessage }, {
+            type: 'agent',
+            data: {
+              intent: 'report_download',
+              status: source ? 'success' : 'needs_information',
+              answer: source
+                ? 'Your report is ready. Use Download PDF below to save the previous response, including its details and any data-quality issues.'
+                : 'Ask for an inventory, forecast, or production result first, or try "Download inventory report".',
+              reportSource: source,
+            },
+          }],
+          isAsking: false,
+        })
+        return
+      }
+      const response = await fetch(`${API_BASE_URL}${managementReport ? '/reports/generate' : '/ask'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          message: userMessage,
+        body: JSON.stringify(managementReport ? managementReportScope(userMessage) : {
+          message: isReportRequest(userMessage) ? reportQuery(userMessage) || userMessage : userMessage,
           session_id: sessionId,
-          payload: payload
+          payload: payload,
         }),
       })
 
@@ -56,6 +88,10 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       
       if (data.session_id && data.session_id !== sessionId) {
         setSessionId(data.session_id)
+      }
+
+      if (isReportRequest(userMessage) && data.intent !== 'unknown') {
+        data.reportRequested = true
       }
 
       updateChatState({
@@ -98,11 +134,11 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
   ]
 
   return (
-    <section className="w-full h-[calc(100vh-32px)] flex flex-col">
+    <section className="w-full h-full flex flex-col p-8">
 
       {/* Header */}
       <div className="mb-5 flex-shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3] mb-3">
+        <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
           Factory assistant
         </div>
@@ -110,7 +146,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
           Ask Omni
         </h2>
 
-        <p className="text-sm text-[#86612b] mt-2">
+        <p className="text-sm text-[#64748b] mt-2">
           Factory operations assistant for stock, sourcing, and production planning
         </p>
       </div>
@@ -127,8 +163,8 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
               <div className="text-center max-w-md">
 
-                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#fff4dc] border border-[#f4d9a8] flex items-center justify-center shadow-sm">
-                  <span className="text-xl text-[#a76913]">
+                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center shadow-sm">
+                  <span className="text-xl text-[#0369a1]">
                     ✦
                   </span>
                 </div>
@@ -180,9 +216,9 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                   Ask Omni
                 </p>
 
-                <div className="inline-flex items-center gap-2 bg-[#f7f1e7] text-[#5e4a2e] rounded-xl px-4 py-3 text-sm border border-[#ebdcb4]">
+                <div className="inline-flex items-center gap-2 bg-[#f1f5f9] text-[#475569] rounded-xl px-4 py-3 text-sm border border-[#cbd5e1]">
 
-                  <span className="w-2 h-2 rounded-full bg-[#d9a441] animate-pulse"></span>
+                  <span className="w-2 h-2 rounded-full bg-[#3b82f6] animate-pulse"></span>
 
                   Checking factory data and supplier status...
 
@@ -217,7 +253,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                 <button
                   key={question}
                   onClick={() => updateChatState({ draft: question })}
-                  className="px-3 py-2 rounded-lg border border-[#eadcc0] bg-[#fffaf2] text-xs text-[#5e4a2e] hover:border-[#d9a441] hover:bg-[#fff3d6] transition"
+                  className="px-3 py-2 rounded-lg border border-[#cbd5e1] bg-[#ffffff] text-xs text-[#475569] hover:border-[#3b82f6] hover:bg-[#dbeafe] transition"
                 >
                   {question}
                 </button>
@@ -241,13 +277,13 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
               onKeyDown={handleKeyDown}
               disabled={isAsking}
               placeholder="Ask about demand, fabric, shortages, or production planning..."
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#b87d39] focus:ring-2 focus:ring-[#d9a441]/20 transition"
+              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#3b82f6]/20 transition"
             />
 
             <button
               onClick={handleSend}
               disabled={isAsking || !draft.trim()}
-              className="px-5 py-3 rounded-xl bg-[#1f3a36] hover:bg-[#274a44] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-3 rounded-xl bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isAsking ? '...' : 'Send'}
             </button>
@@ -277,7 +313,7 @@ function UserMessage({ text }) {
           You
         </p>
 
-        <div className="bg-[#1f3a36] text-white rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6 shadow-sm">
+        <div className="bg-[#1d4ed8] text-white rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6 shadow-sm">
           {text}
         </div>
 
@@ -296,6 +332,11 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
   if (!data) {
     return null
   }
+
+  const answerShownInForecastCard = data.intent === 'demand_forecast'
+    && data.result
+    && isForecastUnavailable(data.result)
+    && data.answer?.trim() === data.result.message?.trim()
 
   return (
     <div className="max-w-[92%]">
@@ -346,7 +387,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
           ANSWER
       ====================================================== */}
 
-      {data.answer && (
+      {data.answer && !answerShownInForecastCard && !data.sections && (
 
         <div className="bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
 
@@ -354,6 +395,16 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
         </div>
 
+      )}
+
+      {data.intent === 'report_navigation' && (
+        <button type="button" onClick={() => setActivePage('reports')} className="mt-3 rounded-lg bg-[#1f3a36] px-4 py-2 text-sm font-semibold text-white">Open Factory reports</button>
+      )}
+
+      {data.sections && <div className="mt-4"><ManagementReport report={data} compact /></div>}
+
+      {(data.reportRequested || data.intent === 'report_download') && data.intent !== 'unknown' && (data.reportSource || (data.intent !== 'report_download' && data.answer)) && (
+        <ReportDownload data={data.reportSource || data} requested={data.reportRequested || data.intent === 'report_download'} />
       )}
 
       {/* ======================================================
@@ -609,9 +660,50 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
    FORECAST RESULTS
 ============================================================ */
 
-function ForecastCard({ result }) {
+function ReportDownload({ data, requested }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [preview, setPreview] = useState(null)
+  async function download() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      setPreview(await createChatReportPreview(data))
+    } catch {
+      setError('Could not create the PDF. Please try downloading again.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <div className="mt-4 rounded-xl border border-[#d9a441]/30 bg-[#fffaf2] p-4">
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      {requested && <p className="mb-2 text-sm text-slate-600">Report ready to download</p>}
+      <button type="button" onClick={download} disabled={busy} className="rounded-lg bg-[#1f3a36] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+        {busy ? 'Preparing PDF...' : 'Download PDF'}
+      </button>
+      <p className="mt-2 text-xs text-slate-500">Preview this report, then download or print it.</p>
+      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
+      {preview && <ForecastPdfPreview report={preview} onClose={() => setPreview(null)} />}
+    </div>
+  )
+}
+
+function isForecastUnavailable(result) {
+  return result.status === 'error' || typeof result.forecast !== 'number' || !Number.isFinite(result.forecast)
+}
+
+function ForecastCard({ result }) {
+  if (isForecastUnavailable(result)) {
+    return (
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-semibold">{result.sku || 'Demand'}: forecast unavailable</p>
+        <p className="mt-2">{result.message || 'There is not enough valid data to calculate a forecast.'}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4 rounded-xl border border-[#3b82f6]/30 bg-[#ffffff] p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-800">{result.product_name}</p>
@@ -1319,10 +1411,10 @@ function OmniProcurementCard({ data, material }) {
   }
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-[#e7dcc7] bg-white text-sm text-slate-700 shadow-sm">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-[#fffaf2] px-4 py-3">
+    <div className="mt-4 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white text-sm text-slate-700 shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-[#ffffff] px-4 py-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-[#a76913]">Procurement run</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[#0369a1]">Procurement run</p>
           <p className="mt-1 font-semibold text-slate-900">
             {material?.material_name
               ? `${material.material_name} -> ${supplier.supplier_name || 'Supplier selected'}`
@@ -1361,7 +1453,7 @@ function OmniProcurementCard({ data, material }) {
       )}
 
       {isAwaitingApproval && (
-        <div className="border-t border-slate-100 bg-[#fffaf2] px-4 py-4">
+        <div className="border-t border-slate-100 bg-[#ffffff] px-4 py-4">
           <p className="text-sm font-semibold text-slate-900">
             Manual approval required
           </p>
@@ -1373,7 +1465,7 @@ function OmniProcurementCard({ data, material }) {
               type="button"
               onClick={handleApprove}
               disabled={isSubmitting}
-              className="rounded-lg bg-[#1f3a36] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#274a44] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[#1d4ed8] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSubmitting ? 'Working...' : 'Authorize PO'}
             </button>

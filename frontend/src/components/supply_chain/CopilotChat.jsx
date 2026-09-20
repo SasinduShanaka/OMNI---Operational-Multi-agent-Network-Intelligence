@@ -542,9 +542,9 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
   return (
     <div className="fixed bottom-6 right-6 z-40 w-[420px] h-[620px] flex flex-col rounded-2xl shadow-2xl bg-white border border-gray-200 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 bg-[#1a2430] text-white flex-shrink-0">
+      <div className="flex items-center justify-between px-5 py-4 bg-[#0f172a] text-white flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex items-center justify-center text-sm font-bold">O</div>
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex items-center justify-center text-sm font-bold shadow">O</div>
           <div>
             <div className="font-bold text-sm">Omni Copilot</div>
             <div className="text-xs text-white/60">Procurement Assistant</div>
@@ -576,24 +576,57 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f9f8f6]">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f8fafc]">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
             {msg.role === 'omni' && (
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold self-start mt-1">O</div>
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
             )}
-            <div className={`max-w-[88%] ${msg.role === 'user' ? 'bg-[#1a2430] text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm' : 'w-full'}`}>
-              {msg.role === 'user'
-                ? <p className="text-[13px]">{msg.content}</p>
-                : renderMsg(msg, idx)
-              }
+            <div className={`max-w-[85%] ${msg.role === 'user' ? 'bg-[#0f172a] text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm' : ''}`}>
+              {msg.role !== 'user' && <p className="text-sm text-gray-700 leading-relaxed">{msg.content}</p>}
+              {msg.role === 'user' && <p className="text-[13px]">{msg.content}</p>}
+
+              {/* PO Card */}
+              {msg.type === 'po_card' && (
+                <div className="mt-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-sm">
+                  <div className="space-y-1.5 mb-3">
+                    <div className="flex justify-between"><span className="text-gray-500">Supplier</span><span className="font-semibold text-gray-800">{msg.data.supplier?.supplier_name}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">PO #</span><span className="font-mono font-semibold text-gray-800">#{msg.data.po?.po_id}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500">Value</span><span className="font-semibold text-gray-800">LKR {msg.data.po?.total_value?.toLocaleString()}</span></div>
+                    <div className="mt-2 p-2 bg-green-50 rounded-lg text-xs text-green-700 border border-green-100">✓ Compliance verified</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleApprove(msg.data.run_id, msg.data.po?.po_id)} disabled={isTyping} className="flex-1 bg-gradient-to-r from-[#3b82f6] to-[#2563eb] text-white text-xs font-bold py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">Authorize</button>
+                    <button onClick={() => handleReject(msg.data.run_id)} disabled={isTyping} className="flex-1 border border-gray-300 text-gray-700 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50">Reject</button>
+                  </div>
+                </div>
+              )}
+
+              {msg.type === 'po_card_done' && (
+                <div className={`mt-2 text-xs font-semibold px-3 py-2 rounded-lg border ${msg.approved ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                  {msg.approved ? '✓ PO Authorized' : '✗ PO Cancelled'}
+                </div>
+              )}
+
+              {msg.type === 'shipment_card' && (
+                <div className="mt-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-sm space-y-1.5">
+                  <div className="flex justify-between"><span className="text-gray-500">Shipment</span><span className="font-mono font-semibold text-gray-800">#{msg.data.shipment?.shipment_id}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Carrier</span><span className="font-semibold text-gray-800">{msg.data.shipment?.carrier}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">ETA</span><span className="font-semibold text-gray-800">{msg.data.shipment?.eta}</span></div>
+                  <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-800 italic border border-blue-100">"{msg.data.shipment?.summary}"</div>
+                </div>
+              )}
+
+              {msg.type === 'error' && (
+                <div className="mt-2 p-2 bg-red-50 text-red-700 rounded-lg border border-red-200 text-xs">{msg.content}</div>
+              )}
             </div>
           </div>
         ))}
 
         {isTyping && (
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
             <div className="flex items-center gap-2 text-xs text-gray-400 bg-white rounded-xl px-4 py-2.5 shadow-sm border border-gray-100">
               <svg className="animate-spin w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -623,8 +656,8 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
         />
         <button
           type="submit"
-          disabled={inputLocked || !input.trim()}
-          className="w-9 h-9 bg-[#1a2430] text-white rounded-xl flex items-center justify-center hover:bg-[#2c3e50] transition-colors disabled:opacity-40"
+          disabled={isTyping || !input.trim()}
+          className="w-9 h-9 bg-[#0f172a] text-white rounded-xl flex items-center justify-center hover:bg-[#334155] transition-colors disabled:opacity-40"
         >
           <svg className="w-4 h-4 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
