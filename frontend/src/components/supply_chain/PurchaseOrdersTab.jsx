@@ -161,8 +161,27 @@ export default function PurchaseOrdersTab({ orders, onUpdate }) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
-                      {po.status === 'approved' && po.approved_by && (
-                        <span className="text-xs text-slate-400">by {po.approved_by}</span>
+                      {po.status === 'approved' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">by {po.approved_by || 'Human Manager'}</span>
+                          <button
+                            onClick={async () => {
+                              setActionLoading(`resend-${po.po_id}`)
+                              try {
+                                const result = await supplyChainApi.resendPoEmail(po.po_id)
+                                alert(`Success: ${result.message}`)
+                              } catch (e) {
+                                alert(`Failed to resend PO email: ${e.message}`)
+                              } finally {
+                                setActionLoading(null)
+                              }
+                            }}
+                            disabled={actionLoading === `resend-${po.po_id}`}
+                            className="ml-2 border border-blue-200 text-blue-600 bg-blue-50 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading === `resend-${po.po_id}` ? 'Sending...' : '✉ Resend Email'}
+                          </button>
+                        </div>
                       )}
                       <button
                         onClick={() => handleDelete(po)}

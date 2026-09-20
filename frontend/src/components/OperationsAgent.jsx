@@ -4,6 +4,7 @@ import { supplyChainApi } from '../api/supplyChainApi'
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const { draft, messages, isAsking, error } = chatState
 
   function updateChatState(patch) {
@@ -13,12 +14,11 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     }))
   }
 
-  async function handleSend() {
-    if (!draft.trim() || isAsking) {
+  async function handleSend(actionText = null, payload = null) {
+    const userMessage = typeof actionText === 'string' ? actionText : draft.trim()
+    if (!userMessage || isAsking) {
       return
     }
-
-    const userMessage = draft.trim()
 
     updateChatState({
       messages: [
@@ -41,6 +41,8 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         },
         body: JSON.stringify({
           message: userMessage,
+          session_id: sessionId,
+          payload: payload
         }),
       })
 
@@ -50,6 +52,10 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         throw new Error(
           data?.detail?.message || data?.detail || `Request failed: ${response.status}`
         )
+      }
+      
+      if (data.session_id && data.session_id !== sessionId) {
+        setSessionId(data.session_id)
       }
 
       updateChatState({
@@ -154,7 +160,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse data={item.data} setActivePage={setActivePage} setScQuery={setScQuery} />
+                  <AgentResponse 
+                    data={item.data} 
+                    setActivePage={setActivePage} 
+                    setScQuery={setScQuery}
+                    handleSend={handleSend}
+                  />
                 )}
 
               </div>
@@ -281,7 +292,7 @@ function UserMessage({ text }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery }) {
+function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
   if (!data) {
     return null
   }
@@ -345,6 +356,34 @@ function AgentResponse({ data, setActivePage, setScQuery }) {
 
       )}
 
+      {/* ======================================================
+          SHADE SELECTION
+      ====================================================== */}
+
+      {data.status === 'needs_shade_selection' && (
+        <div className="mt-4 p-4 border border-[#e2e8f0] rounded-xl bg-white shadow-sm max-w-sm">
+          <ColorPalette 
+            question={data.answer} 
+            onSelect={(shade) => handleSend && handleSend(shade)} 
+          />
+        </div>
+      )}
+
+      {/* ======================================================
+          SELECTING (SUPPLIERS)
+      ====================================================== */}
+
+      {data.status === 'selecting' && data.suppliers && (
+        <div className="mt-4 max-w-md space-y-2">
+          {data.suppliers.map((sup, idx) => (
+            <SupplierCard 
+              key={idx} 
+              supplier={sup} 
+              onSelect={(supplier) => handleSend && handleSend(`Selected supplier: ${supplier.name}`, { supplier })}
+            />
+          ))}
+        </div>
+      )}
 
       {/* ======================================================
           PROCUREMENT
@@ -1331,3 +1370,181 @@ function OmniProcurementCard({ data }) {
 }
 
 export default OperationsAgent
+
+// ── Shared Supplier UI Components ──────────────────────────────────────
+
+const FLAGS = {
+  'Sri Lanka': '🇱🇰', 'India': '🇮🇳', 'Bangladesh': '🇧🇩',
+  'Turkey': '🇹🇷', 'Pakistan': '🇵🇰', 'China': '🇨🇳',
+  'Vietnam': '🇻🇳', 'Indonesia': '🇮🇩',
+}
+
+const COLOUR_PALETTE = [
+  { name: 'Ivory White',       hex: '#FFFFF0', base: 'White' },
+  { name: 'Natural White',     hex: '#F5F5DC', base: 'White' },
+  { name: 'Optical White',     hex: '#F8F8FF', base: 'White' },
+  { name: 'Light Grey',        hex: '#D3D3D3', base: 'Grey' },
+  { name: 'Stone Grey',        hex: '#A9A9A9', base: 'Grey' },
+  { name: 'Charcoal',          hex: '#36454F', base: 'Grey' },
+  { name: 'Black',             hex: '#111111', base: 'Black' },
+  { name: 'Sky Blue',          hex: '#87CEEB', base: 'Blue' },
+  { name: 'Royal Blue',        hex: '#4169E1', base: 'Blue' },
+  { name: 'Navy Blue',         hex: '#1E3A8A', base: 'Blue' },
+  { name: 'Midnight Blue',     hex: '#191970', base: 'Blue' },
+  { name: 'Teal',              hex: '#008080', base: 'Green' },
+  { name: 'Mint Green',        hex: '#98FF98', base: 'Green' },
+  { name: 'Olive Green',       hex: '#6B8E23', base: 'Green' },
+  { name: 'Forest Green',      hex: '#228B22', base: 'Green' },
+  { name: 'Dark Green',        hex: '#006400', base: 'Green' },
+  { name: 'Burgundy',          hex: '#800020', base: 'Red' },
+  { name: 'Rose Red',          hex: '#FF007F', base: 'Red' },
+  { name: 'Tomato Red',        hex: '#FF6347', base: 'Red' },
+  { name: 'Coral',             hex: '#FF7F50', base: 'Orange' },
+  { name: 'Orange',            hex: '#FF8C00', base: 'Orange' },
+  { name: 'Mustard Yellow',    hex: '#FFDB58', base: 'Yellow' },
+  { name: 'Sand Beige',        hex: '#F5DEB3', base: 'Brown' },
+  { name: 'Caramel Brown',     hex: '#C68642', base: 'Brown' },
+  { name: 'Chocolate Brown',   hex: '#7B3F00', base: 'Brown' },
+  { name: 'Lavender',          hex: '#E6E6FA', base: 'Purple' },
+  { name: 'Purple',            hex: '#800080', base: 'Purple' },
+  { name: 'Fuchsia',           hex: '#FF00FF', base: 'Purple' },
+  { name: 'Dusty Rose',        hex: '#DCAE96', base: 'Pink' },
+  { name: 'Natural / Undyed',  hex: '#EDE0C8', base: 'Other' },
+]
+
+function generateShades(baseName) {
+  const hues = {
+    red: 0, orange: 30, yellow: 60, green: 120, teal: 180,
+    blue: 215, navy: 230, purple: 270, pink: 330, brown: 25,
+    olive: 80, mint: 150
+  };
+  
+  const b = baseName.toLowerCase();
+  let hue = 215; // default to blue
+  let isAchromatic = false;
+  
+  if (b.includes('white') || b.includes('grey') || b.includes('gray') || b.includes('black')) {
+    isAchromatic = true;
+  } else {
+    for (const [k, v] of Object.entries(hues)) {
+      if (b.includes(k)) { hue = v; break; }
+    }
+  }
+
+  const shades = [];
+  const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const baseDisplay = b.split(' ').map(capitalize).join(' ');
+  
+  if (isAchromatic) {
+    for (let i = 0; i < 25; i++) {
+      const l = 98 - (i * 3.8); // 98 down to ~6.8
+      let name = `Monochrome Shade ${i+1}`;
+      if (i === 0) name = 'Pure White';
+      else if (i === 12) name = 'Medium Grey';
+      else if (i === 24) name = 'Deep Black';
+      else if (i < 5) name = `Light Grey ${i}`;
+      else if (i > 20) name = `Dark Grey ${i}`;
+      shades.push({ name, hex: `hsl(0, 0%, ${l.toFixed(1)}%)` });
+    }
+  } else {
+    const l_vals = [85, 70, 50, 35, 20];
+    const s_vals = [20, 40, 60, 80, 100];
+    const l_names = ['Very Light', 'Light', 'Medium', 'Dark', 'Very Dark'];
+    const s_names = ['Muted', 'Soft', 'Standard', 'Vibrant', 'Neon'];
+    
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 5; j++) {
+        let l = l_vals[i];
+        let s = s_vals[j];
+        if (b.includes('brown')) l = l * 0.7; // Brown needs to be darker
+        let name = `${l_names[i]} ${s_names[j]} ${baseDisplay}`;
+        shades.push({ name, hex: `hsl(${hue}, ${s}%, ${l}%)` });
+      }
+    }
+  }
+  return shades;
+}
+
+function ColorPalette({ onSelect, disabled, question }) {
+  const [hovered, setHovered] = useState(null)
+  
+  let baseColor = null;
+  const match = (question || "").match(/shade of ([a-zA-Z\s]+)/i);
+  if (match) {
+    baseColor = match[1].trim();
+  }
+  
+  const displayColors = baseColor ? generateShades(baseColor) : COLOUR_PALETTE;
+
+  return (
+    <div className="mt-2">
+      <p className="text-xs text-gray-400 mb-2">Click to select a colour:</p>
+      <div className={`grid gap-1.5 ${baseColor ? 'grid-cols-5' : 'grid-cols-6'}`}>
+        {displayColors.map(c => (
+          <button
+            key={c.name}
+            title={c.name}
+            disabled={disabled}
+            onClick={() => onSelect(c.name)}
+            onMouseEnter={() => setHovered(c.name)}
+            onMouseLeave={() => setHovered(null)}
+            className="w-full aspect-square rounded-md border-2 border-transparent hover:border-gray-700 transition-all duration-100 relative focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed"
+            style={{ backgroundColor: c.hex }}
+          />
+        ))}
+      </div>
+      {hovered && (
+        <p className="text-xs text-gray-500 mt-1.5 text-center">{hovered}</p>
+      )}
+    </div>
+  )
+}
+
+function SupplierCard({ supplier, onSelect, disabled, selected }) {
+  return (
+    <button
+      onClick={() => onSelect(supplier)}
+      disabled={disabled}
+      className={`w-full text-left rounded-xl p-3 border transition-all duration-150 group
+        ${selected
+          ? 'border-amber-400 bg-amber-50 shadow-md'
+          : disabled
+            ? 'border-gray-100 opacity-40 cursor-not-allowed'
+            : 'border-gray-200 bg-white hover:border-amber-400 hover:shadow-md'
+        }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+            <span className="font-semibold text-sm text-gray-800 group-hover:text-amber-700">
+              {FLAGS[supplier.country] || '🏭'} {supplier.name}
+            </span>
+            {selected && <span className="text-amber-600 text-xs font-semibold">✓ Selected</span>}
+            {supplier.badge_fastest && !selected && (
+              <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">⚡ Fastest</span>
+            )}
+            {supplier.badge_best_price && !selected && (
+              <span className="text-[9px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">💰 Best Price</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-400">{supplier.country}</p>
+          {supplier.rating !== undefined && (
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-xs font-medium text-amber-500">★ {Number(supplier.rating).toFixed(1)}</span>
+            </div>
+          )}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-xs text-gray-400">Lead time</p>
+          <p className="text-sm font-semibold text-gray-700">{supplier.lead_time_days}d</p>
+          {supplier.price_per_unit && (
+            <p className="text-xs text-gray-400 mt-0.5">LKR {Number(supplier.price_per_unit).toLocaleString()}/unit</p>
+          )}
+          {supplier.estimated_total && (
+            <p className="text-xs font-bold text-emerald-700">LKR {Number(supplier.estimated_total).toLocaleString()}</p>
+          )}
+        </div>
+      </div>
+    </button>
+  )
+}

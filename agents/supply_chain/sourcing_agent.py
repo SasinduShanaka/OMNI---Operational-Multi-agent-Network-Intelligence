@@ -118,11 +118,26 @@ async def run_sourcing_agent(
     else:
         suppliers = all_suppliers
 
-    print(f"  Checking {len(suppliers)} supplier(s) against PDF contracts via RAG...")
-
     # ------------------------------------------------------------------
     # Step 2: RAG compliance check on each candidate
     # ------------------------------------------------------------------
+
+    # Skip RAG entirely if no compliance keywords provided — saves ~60s
+    if not compliance_keywords:
+        print("  [Agent 1] No compliance keywords required — skipping RAG check.")
+        best = max(suppliers, key=lambda s: s.get("rating", 0))
+        print(f"\n  [Agent 1] Best supplier (no compliance filter): {best['name']} (rating={best.get('rating', 0)})")
+        return {
+            "supplier_id":      best["supplier_id"],
+            "supplier_name":    best["name"],
+            "country":          best.get("country", ""),
+            "lead_time_days":   best.get("lead_time_days", 21),
+            "rating":           best.get("rating", 0),
+            "requirement_id":   requirement_id,
+            "compliance_proof": "No compliance check required.",
+        }
+
+    print(f"  Checking {len(suppliers)} supplier(s) against PDF contracts via RAG...")
     compliant_suppliers = []
 
     for s in suppliers:
