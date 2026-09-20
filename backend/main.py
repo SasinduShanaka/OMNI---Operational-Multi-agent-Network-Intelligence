@@ -84,6 +84,7 @@ app.include_router(supply_chain_router, prefix="/supply-chain", tags=["Supply Ch
 class AskRequest(BaseModel):
     message: str
     session_id: str | None = None
+    payload: dict | None = None
 
 
 class MaterialRequest(BaseModel):
@@ -110,43 +111,126 @@ class FeasibilityRequest(BaseModel):
 
 procurement_sessions = {}
 
-def handle_procurement_turn(session_id: str, user_message: str):
-    from backend.supply_chain.supervisor import process_chat_message, _deterministic_gather
+def handle_procurement_turn(session_id: str, request: AskRequest):
+    from backend.supply_chain.supervisor import gather_requirements
     from backend.supply_chain.orchestrator import start_pipeline
     import asyncio
     
-    if session_id not in procurement_sessions:
-        procurement_sessions[session_id] = []
+    if session_id not in procurement_sessions or isinstance(procurement_sessions.get(session_id), list):
+        procurement_sessions[session_id] = {"phase": "gathering", "history": [], "requirements": {}}
         
-    history = procurement_sessions[session_id]
-    history.append({"role": "user", "content": user_message})
+    session = procurement_sessions[session_id]
     
-    # We use _deterministic_gather directly because Groq is throwing 404 for LLM logic
-    decision = _deterministic_gather(history)
+    user_message = request.message
+    payload = request.payload or {}
     
-    if decision.get("status") in ("needs_more_info", "needs_shade_selection"):
-        assistant_reply = decision.get("question", "Could you provide more details?")
-        history.append({"role": "assistant", "content": assistant_reply})
-        return {
-            "agent": "Supply Chain Agent",
-            "task": "Procurement Requirements",
-            "intent": "procurement",
-            "status": decision.get("status"),
-            "answer": assistant_reply,
-            "shades": decision.get("shades", [])
-        }
+    # ── PHASE: gathering ──
+    if session["phase"] == "gathering":
+        session["history"].append({"role": "user", "content": user_message})
+        decision = gather_requirements(session["history"])
         
-    elif decision.get("status") == "ready":
+        if decision.get("status") in ("needs_more_info", "needs_shade_selection"):
+            assistant_reply = decision.get("question", "Could you provide more details?")
+            session["history"].append({"role": "assistant", "content": assistant_reply})
+            
+            q_lower = assistant_reply.lower()
+            return_status = decision.get("status")
+            if "color" in q_lower or "colour" in q_lower or "shade" in q_lower:
+                return_status = "needs_shade_selection"
+                
+            return {
+                "agent": "Supply Chain Agent",
+                "task": "Procurement Requirements",
+                "intent": "procurement",
+                "status": return_status,
+                "answer": assistant_reply,
+                "shades": decision.get("shades", [])
+            }
+            
+        elif decision.get("status") == "ready":
+            session["requirements"] = decision
+            session["phase"] = "selecting"
+            
+            # Fetch suppliers from DB directly
+            import sys, os
+            DB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "database", "supply_chain", "sqlite_db"))
+            if DB_DIR not in sys.path:
+                sys.path.insert(0, DB_DIR)
+            from db import ensure_erp_db_ready, get_erp_db_connection
+            ensure_erp_db_ready()
+            conn = get_erp_db_connection()
+            rows = conn.execute(
+                """
+                SELECT supplier_id, name, country, category, lead_time_days, rating,
+                       COALESCE(email, '') as email,
+                       COALESCE(price_per_unit, 260.0) as price_per_unit
+                FROM suppliers
+                WHERE category = ?
+                ORDER BY rating DESC
+                """,
+                (decision.get("material_type"),),
+            ).fetchall()
+            conn.close()
+
+            suppliers = []
+            min_price = None
+            min_lead  = None
+            qty = float(decision.get("qty", 300))
+            for r in rows:
+                s = dict(r)
+                ppu = s["price_per_unit"]
+                s["estimated_total"] = round(qty * ppu, 2)
+                suppliers.append(s)
+                if min_price is None or ppu < min_price: min_price = ppu
+                if min_lead  is None or s["lead_time_days"] < min_lead: min_lead = s["lead_time_days"]
+
+            for s in suppliers:
+                s["badge_best_price"] = (s["price_per_unit"] == min_price)
+                s["badge_fastest"]    = (s["lead_time_days"] == min_lead)
+            
+            return {
+                "agent": "Supply Chain Agent",
+                "task": "Select Supplier",
+                "intent": "procurement",
+                "status": "selecting",
+                "answer": "Here are the top suppliers that match your requirements. Please select one to proceed.",
+                "suppliers": suppliers
+            }
+
+    # ── PHASE: selecting ──
+    elif session["phase"] == "selecting":
+        if "supplier" not in payload:
+            return {
+                "agent": "Supply Chain Agent",
+                "task": "Select Supplier",
+                "intent": "procurement",
+                "status": "selecting",
+                "answer": "Please select a supplier by clicking one of the options below.",
+            }
+            
+        selected_supplier = payload["supplier"]
+        decision = session["requirements"]
+        
+        # We draft the PO and enter approving phase
+        # Wait, start_pipeline does EVERYTHING (Sourcing -> Purchasing -> Freight).
+        # We want to mimic the frontend's step-by-step.
+        # But wait, CopilotChat calls /run which runs the WHOLE pipeline, and then just says "done" or waits for approval.
+        # We draft the PO
         result = asyncio.run(start_pipeline(
             material_type=decision.get("material_type"),
             requirement_id=decision.get("requirement_id"),
             qty=float(decision.get("qty", 300)),
-            total_value=decision.get("total_value"),
+            total_value=selected_supplier.get("estimated_total", decision.get("total_value")),
             compliance_keywords=decision.get("compliance_keywords", []),
-            destination=decision.get("destination", "Colombo, LK"),
-            targeted_supplier=decision.get("supplier_name"),
+            destination=decision.get("destination", "Colombo, Sri Lanka"),
+            targeted_supplier=selected_supplier.get("name"),
+            po_details={
+                "color_spec": decision.get("color_spec"),
+                "material_name": decision.get("material_name"),
+            }
         ))
         
+        # Clear the session since the frontend OmniProcurementCard handles the approval directly
         del procurement_sessions[session_id]
         
         return {
@@ -156,7 +240,7 @@ def handle_procurement_turn(session_id: str, user_message: str):
             "intent": "procurement",
             "status": "success",
             "workflow": ["Operations Agent", "Supply Chain Agent", "Sourcing Agent", "Purchasing Agent"],
-            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
+            "answer": "I drafted a Purchase Order for your selected supplier. Please review the details below to authorize the purchase.",
             "data": result
         }
 
@@ -204,7 +288,7 @@ def ask_agent(request: AskRequest):
         # Check active session
         session_id = request.session_id
         if session_id and session_id in procurement_sessions:
-            return handle_procurement_turn(session_id, request.message)
+            return handle_procurement_turn(session_id, request)
 
         from agents.operations_agent import process_request
         result = process_request(request.message)
@@ -214,7 +298,7 @@ def ask_agent(request: AskRequest):
             new_session = session_id or str(uuid.uuid4())
             result["session_id"] = new_session
             # Immediately take the first turn
-            return handle_procurement_turn(new_session, request.message)
+            return handle_procurement_turn(new_session, request)
 
         return result
 
