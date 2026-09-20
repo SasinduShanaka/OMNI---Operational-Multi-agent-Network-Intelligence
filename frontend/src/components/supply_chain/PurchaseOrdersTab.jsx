@@ -108,38 +108,38 @@ export default function PurchaseOrdersTab({ orders, onUpdate }) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_10px_25px_rgba(15,23,42,0.03)] overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)] overflow-hidden">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">PO ID</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Supplier</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Material</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">PO ID</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Supplier</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Material</th>
               <th className="text-right px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Qty</th>
               <th className="text-right px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Value (LKR)</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Status</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Order Date</th>
-              <th className="px-6 py-4"></th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Status</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Order Date</th>
+              <th className="px-4 py-1.5"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-slate-100">
             {filtered.map(po => (
               <tr
                 key={po.po_id}
                 className={`transition-colors ${po.status === 'pending_approval' ? 'bg-amber-50/30 hover:bg-amber-50' : 'hover:bg-gray-50'}`}
               >
                 <td className="px-6 py-4 font-mono font-semibold text-slate-500 text-xs">#PO-{String(po.po_id).padStart(4,'0')}</td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-2">
                   <div className="font-semibold text-slate-800">{po.supplier_name || '—'}</div>
                   <div className="text-xs text-slate-400">{po.country}</div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-2">
                   <div className="text-slate-700">{po.material_name || '—'}</div>
                   <div className="text-xs text-slate-400">{po.style_name}</div>
                 </td>
                 <td className="px-6 py-4 text-right font-medium text-slate-700">{po.qty?.toLocaleString()}</td>
                 <td className="px-6 py-4 text-right font-semibold text-slate-800">{po.total_value?.toLocaleString()}</td>
-                <td className="px-6 py-4"><StatusBadge status={po.status} /></td>
+                <td className="px-4 py-2"><StatusBadge status={po.status} /></td>
                 <td className="px-6 py-4 text-slate-400 text-xs">{po.order_date || '—'}</td>
                 <td className="px-5 py-4">
                   {po.status === 'pending_approval' ? (
@@ -147,7 +147,7 @@ export default function PurchaseOrdersTab({ orders, onUpdate }) {
                       <button
                         onClick={() => handleApprove(po)}
                         disabled={actionLoading === po.po_id}
-                        className="bg-gradient-to-r from-[#d9a441] to-[#b87d39] text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm"
+                        className="bg-gradient-to-r from-[#3b82f6] to-[#2563eb] text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm"
                       >
                         {actionLoading === po.po_id ? '...' : 'Approve'}
                       </button>
@@ -161,13 +161,32 @@ export default function PurchaseOrdersTab({ orders, onUpdate }) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
-                      {po.status === 'approved' && po.approved_by && (
-                        <span className="text-xs text-slate-400">by {po.approved_by}</span>
+                      {po.status === 'approved' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">by {po.approved_by || 'Human Manager'}</span>
+                          <button
+                            onClick={async () => {
+                              setActionLoading(`resend-${po.po_id}`)
+                              try {
+                                const result = await supplyChainApi.resendPoEmail(po.po_id)
+                                alert(`Success: ${result.message}`)
+                              } catch (e) {
+                                alert(`Failed to resend PO email: ${e.message}`)
+                              } finally {
+                                setActionLoading(null)
+                              }
+                            }}
+                            disabled={actionLoading === `resend-${po.po_id}`}
+                            className="ml-2 border border-blue-200 text-blue-600 bg-blue-50 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading === `resend-${po.po_id}` ? 'Sending...' : '✉ Resend Email'}
+                          </button>
+                        </div>
                       )}
                       <button
                         onClick={() => handleDelete(po)}
                         disabled={actionLoading === po.po_id}
-                        className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
+                        className="bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
                       >
                         Delete
                       </button>

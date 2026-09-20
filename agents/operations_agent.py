@@ -26,7 +26,8 @@ from agents.inventory_agent import (
     get_largest_shortages,
     get_inventory_kpis,
 )
-from agents.forecast_agent import forecast_all_demand, forecast_demand
+from agents.forecast_agent import forecast_all_demand, forecast_demand, get_forecast_products
+from agents.forecast_product import resolve_forecast_product
 
 from agents.production_agent import (
     get_all_lines,
@@ -1383,9 +1384,21 @@ def _execute_specialist_request(user_request: str):
     # Demand Forecast
     if intent == "demand_forecast":
 
-        sku_match = re.search(r'\bGAR-\d{3}\b', user_request, re.IGNORECASE)
+        try:
+            products = [] if re.search(r'\bGAR-\d{3}\b', user_request, re.IGNORECASE) else get_forecast_products()
+            selection = resolve_forecast_product(user_request, products)
+        except Exception:
+            selection = {"status": "unavailable", "message": "I could not load the forecast product catalog. Please check the demand data connection and try again."}
 
-        if not sku_match:
+        if selection["status"] not in {"matched", "all"}:
+            return {
+                "agent": "Operations Agent", "delegated_to": "Forecast Agent",
+                "intent": intent, "status": "error" if selection["status"] == "unavailable" else "needs_information",
+                "workflow": ["Operations Agent", "Forecast Agent"],
+                "answer": selection["message"],
+            }
+
+        if selection["status"] == "all":
             forecasts = forecast_all_demand()
 
             if not forecasts:
@@ -1426,16 +1439,21 @@ def _execute_specialist_request(user_request: str):
                 "results": forecasts,
             }
 
-        forecast = forecast_demand(sku_match.group())
+        forecast = forecast_demand(selection["sku"])
 
         if forecast["status"] == "success":
             accuracy = forecast["accuracy"]
+            accuracy_text = (
+                f"Backtest accuracy is {accuracy['accuracy_percent']:.2f}%. "
+                if accuracy.get("accuracy_percent") is not None
+                else "Backtest accuracy is unavailable for this history. "
+            )
             final_answer = (
                 f"The Demand Forecast Agent predicts {forecast['forecast']:,.2f} units of "
                 f"{forecast['product_name']} ({forecast['sku']}) for {forecast['forecast_period']}. "
                 f"Demand is {forecast['trend'].lower()} at {forecast['trend_per_period']:+,.2f} units per month. "
-                f"The model used {forecast['history_points']} monthly demand records and achieved "
-                f"{accuracy['accuracy_percent']:.2f}% backtest accuracy (MAPE {accuracy['mape_percent']:.2f}%). "
+                f"The model used {forecast['history_points']} monthly demand records. "
+                f"{accuracy_text}"
                 f"{forecast['recommendation']}"
             )
         else:
@@ -1456,51 +1474,15 @@ def _execute_specialist_request(user_request: str):
     # ========================================================
 
     if intent == "procurement":
-        import asyncio
-        from backend.supply_chain.supervisor import process_chat_message
-        from backend.supply_chain.orchestrator import start_pipeline
-
-        decision = process_chat_message(user_request)
-
-        if decision.scenario == "unrelated":
-            return {
-                "agent": "Operations Agent",
-                "task": "Procurement Request",
-                "delegated_to": "Supply Chain Agent",
-                "llm_used": True,
-                "intent": "unknown",
-                "status": "success",
-                "workflow": [
-                    "Operations Agent"
-                ],
-                "answer": "I can help you source and procure materials. Try: 'I need 400 meters of organic cotton'."
-            }
-
-        result = asyncio.run(start_pipeline(
-            material_type=decision.material_type,
-            requirement_id=decision.requirement_id,
-            qty=float(decision.qty),
-            total_value=decision.total_value,
-            compliance_keywords=["Organic Cotton", "Child-Labor Free"],
-            destination="Colombo, LK",
-            targeted_supplier=decision.supplier_name,
-        ))
-
         return {
             "agent": "Operations Agent",
             "task": "Procurement Request",
             "delegated_to": "Supply Chain Agent",
             "llm_used": True,
-            "intent": intent,
-            "status": "success",
-            "workflow": [
-                "Operations Agent",
-                "Supply Chain Agent",
-                "Sourcing Agent",
-                "Purchasing Agent"
-            ],
-            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
-            "data": result,
+            "intent": "procurement",
+            "status": "init_session",
+            "workflow": ["Operations Agent", "Supply Chain Agent"],
+            "answer": "Starting procurement gathering session.",
             "user_request": user_request
         }
 
