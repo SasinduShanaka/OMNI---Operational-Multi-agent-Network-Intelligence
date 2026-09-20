@@ -73,10 +73,8 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         },
         body: JSON.stringify(managementReport ? managementReportScope(userMessage) : {
           message: isReportRequest(userMessage) ? reportQuery(userMessage) || userMessage : userMessage,
-        body: JSON.stringify({
-          message: userMessage,
           session_id: sessionId,
-          payload: payload
+          payload: payload,
         }),
       })
 
