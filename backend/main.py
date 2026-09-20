@@ -83,6 +83,7 @@ app.include_router(supply_chain_router, prefix="/supply-chain", tags=["Supply Ch
 
 class AskRequest(BaseModel):
     message: str
+    session_id: str | None = None
 
 
 class MaterialRequest(BaseModel):
@@ -102,6 +103,62 @@ class FeasibilityRequest(BaseModel):
     quantity: float
     required_date: str
 
+
+# ============================================================
+# PROCUREMENT SESSIONS
+# ============================================================
+
+procurement_sessions = {}
+
+def handle_procurement_turn(session_id: str, user_message: str):
+    from backend.supply_chain.supervisor import process_chat_message, _deterministic_gather
+    from backend.supply_chain.orchestrator import start_pipeline
+    import asyncio
+    
+    if session_id not in procurement_sessions:
+        procurement_sessions[session_id] = []
+        
+    history = procurement_sessions[session_id]
+    history.append({"role": "user", "content": user_message})
+    
+    # We use _deterministic_gather directly because Groq is throwing 404 for LLM logic
+    decision = _deterministic_gather(history)
+    
+    if decision.get("status") in ("needs_more_info", "needs_shade_selection"):
+        assistant_reply = decision.get("question", "Could you provide more details?")
+        history.append({"role": "assistant", "content": assistant_reply})
+        return {
+            "agent": "Supply Chain Agent",
+            "task": "Procurement Requirements",
+            "intent": "procurement",
+            "status": decision.get("status"),
+            "answer": assistant_reply,
+            "shades": decision.get("shades", [])
+        }
+        
+    elif decision.get("status") == "ready":
+        result = asyncio.run(start_pipeline(
+            material_type=decision.get("material_type"),
+            requirement_id=decision.get("requirement_id"),
+            qty=float(decision.get("qty", 300)),
+            total_value=decision.get("total_value"),
+            compliance_keywords=decision.get("compliance_keywords", []),
+            destination=decision.get("destination", "Colombo, LK"),
+            targeted_supplier=decision.get("supplier_name"),
+        ))
+        
+        del procurement_sessions[session_id]
+        
+        return {
+            "agent": "Operations Agent",
+            "task": "Procurement Request",
+            "delegated_to": "Supply Chain Agent",
+            "intent": "procurement",
+            "status": "success",
+            "workflow": ["Operations Agent", "Supply Chain Agent", "Sourcing Agent", "Purchasing Agent"],
+            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
+            "data": result
+        }
 
 # ============================================================
 # ROOT
@@ -135,35 +192,36 @@ def health():
 # OPERATIONS AGENT
 # ============================================================
 
+import uuid
+
 @app.post("/ask")
 def ask_agent(request: AskRequest):
 
     if not request.message.strip():
-
-        raise HTTPException(
-            status_code=400,
-            detail="Message cannot be empty."
-        )
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     try:
-        from agents.operations_agent import process_request
+        # Check active session
+        session_id = request.session_id
+        if session_id and session_id in procurement_sessions:
+            return handle_procurement_turn(session_id, request.message)
 
-        result = process_request(
-            request.message
-        )
+        from agents.operations_agent import process_request
+        result = process_request(request.message)
+
+        if result.get("status") == "init_session":
+            # Start new session
+            new_session = session_id or str(uuid.uuid4())
+            result["session_id"] = new_session
+            # Immediately take the first turn
+            return handle_procurement_turn(new_session, request.message)
 
         return result
 
     except Exception as error:
+        print(f"Operations Agent error: {error}")
+        raise HTTPException(status_code=500, detail="Operations Agent failed to process the request.")
 
-        print(
-            f"Operations Agent error: {error}"
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail="Operations Agent failed to process the request."
-        )
 
 
 # ============================================================

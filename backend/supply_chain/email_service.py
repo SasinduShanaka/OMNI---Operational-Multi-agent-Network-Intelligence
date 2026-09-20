@@ -21,7 +21,7 @@ load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _build_dimensions_rows(dimensions: dict) -> str:
-    """Build HTML table rows for product-specific dimension fields."""
+    """Build HTML table rows for product-specific dimension fields (Formal Style)."""
     if not dimensions:
         return ""
     label_map = {
@@ -59,15 +59,15 @@ def _build_dimensions_rows(dimensions: dict) -> str:
     for key, value in dimensions.items():
         label = label_map.get(key, key.replace("_", " ").title())
         rows += f"""
-        <tr>
-          <td style="padding:7px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #f1f5f9;">{label}</td>
-          <td style="padding:7px 16px;font-weight:600;font-size:13px;border-bottom:1px solid #f1f5f9;">{value}</td>
-        </tr>"""
+      <tr>
+        <td><strong>{label}</strong></td>
+        <td>{value}</td>
+      </tr>"""
     return rows
 
 
 def _build_po_html(po_data: dict) -> str:
-    """Generate a professional HTML Purchase Order email."""
+    """Generate a formal business letter HTML Purchase Order email."""
     po_id       = po_data.get("po_id", "—")
     supplier    = po_data.get("supplier_name", "—")
     email       = po_data.get("supplier_email", "—")
@@ -84,6 +84,10 @@ def _build_po_html(po_data: dict) -> str:
     delivery    = po_data.get("expected_delivery_date", "—")
     approved_by = po_data.get("approved_by", "Human Manager")
     notes       = po_data.get("notes", "")
+    incoterms   = po_data.get("incoterms", "DDP (Delivered Duty Paid)")
+    payment_terms = po_data.get("payment_terms", "Net 30 Days")
+    billing_address = po_data.get("billing_address", "OMNI Corporate HQ, Colombo, LK")
+    
     dimensions  = po_data.get("dimensions", {})
     if isinstance(dimensions, str):
         try:
@@ -92,136 +96,131 @@ def _build_po_html(po_data: dict) -> str:
             dimensions = {}
 
     dim_rows = _build_dimensions_rows(dimensions)
-    notes_section = f"""
-    <tr>
-      <td colspan="2" style="padding:12px 16px;background:#fffbeb;border-top:1px solid #fde68a;">
-        <span style="color:#92400e;font-size:12px;font-weight:600;">NOTES</span><br>
-        <span style="color:#78350f;font-size:13px;">{notes}</span>
-      </td>
-    </tr>""" if notes else ""
+    notes_html = f"<div style='margin-top:12px; padding-top:12px; border-top:1px solid #e2e8f0;'><strong>Special Notes:</strong><br>{notes}</div>" if notes else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Purchase Order #{po_id:04d} — OMNI Procurement</title>
+<title>Official Purchase Order #{po_id:04d}</title>
+<style>
+  body {{ font-family: 'Times New Roman', Times, serif; background-color: #ffffff; color: #111111; margin: 0; padding: 40px; line-height: 1.6; }}
+  .container {{ max-width: 750px; margin: 0 auto; background: #ffffff; }}
+  .header {{ text-align: center; margin-bottom: 40px; border-bottom: 2px solid #111111; padding-bottom: 20px; }}
+  .company-name {{ font-size: 26px; font-weight: bold; font-family: Arial, sans-serif; letter-spacing: 2px; color: #1a2430; }}
+  .document-title {{ font-size: 16px; font-weight: normal; margin-top: 10px; font-family: Arial, sans-serif; text-transform: uppercase; color: #555555; }}
+  .meta-info {{ width: 100%; margin-bottom: 40px; font-family: Arial, sans-serif; font-size: 14px; color: #333333; }}
+  .meta-info td {{ vertical-align: top; }}
+  .salutation {{ font-size: 16px; margin-bottom: 20px; }}
+  .body-text {{ font-size: 16px; margin-bottom: 30px; text-align: justify; }}
+  .items-table {{ width: 100%; border-collapse: collapse; margin-bottom: 30px; font-family: Arial, sans-serif; font-size: 14px; }}
+  .items-table th, .items-table td {{ border: 1px solid #cccccc; padding: 12px 15px; text-align: left; }}
+  .items-table th {{ background-color: #f8fafc; font-weight: bold; color: #333333; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }}
+  .total-row td {{ font-weight: bold; background-color: #f8fafc; font-size: 15px; color: #111111; }}
+  .terms-box {{ border: 1px solid #cccccc; padding: 20px; margin-bottom: 40px; font-family: Arial, sans-serif; font-size: 14px; background-color: #fafafa; }}
+  .sign-off {{ font-size: 16px; margin-top: 50px; }}
+  .signature-line {{ border-bottom: 1px solid #111111; width: 250px; margin-bottom: 5px; margin-top: 40px; }}
+  .footer {{ margin-top: 60px; font-size: 11px; text-align: center; color: #888888; font-family: Arial, sans-serif; border-top: 1px solid #eeeeee; padding-top: 15px; }}
+</style>
 </head>
-<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:32px 0;">
-    <tr><td align="center">
-      <table width="620" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(15,23,42,0.08);">
-
-        <!-- Header -->
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="company-name">OMNI PROCUREMENT SYSTEM</div>
+      <div class="document-title">Official Purchase Order</div>
+    </div>
+    
+    <table class="meta-info">
+      <tr>
+        <td width="33%">
+          <strong>Supplier:</strong><br>
+          {supplier}<br>
+          {email}<br>
+          {country}
+        </td>
+        <td width="34%">
+          <strong>Bill To:</strong><br>
+          OMNI Procurement System<br>
+          {billing_address}
+        </td>
+        <td width="33%" style="text-align: right;">
+          <strong>PO Number:</strong> PO-{po_id:04d}<br>
+          <strong>Order Date:</strong> {order_date}<br>
+          <strong>Status:</strong> <span style="color: #166534; font-weight: bold;">AUTHORIZED</span>
+        </td>
+      </tr>
+    </table>
+    
+    <div class="salutation">Dear {supplier} Representative,</div>
+    
+    <div class="body-text">
+      This document serves as a formal Purchase Order generated by OMNI Procurement. Please proceed with the supply and delivery of the following materials as per the specifications and commercial terms outlined below.
+    </div>
+    
+    <table class="items-table">
+      <tr>
+        <th width="40%">Specification</th>
+        <th width="60%">Details</th>
+      </tr>
+      <tr>
+        <td><strong>Material Description</strong></td>
+        <td>{material}</td>
+      </tr>
+      <tr>
+        <td><strong>Colour / Shade</strong></td>
+        <td>{colour}</td>
+      </tr>
+      {dim_rows}
+      <tr>
+        <td><strong>Order Quantity</strong></td>
+        <td>{qty:,} {unit}</td>
+      </tr>
+      <tr>
+        <td><strong>Unit Price</strong></td>
+        <td>LKR {price_per_u:,.2f} / {unit[:-1] if unit.endswith('s') else unit}</td>
+      </tr>
+      <tr class="total-row">
+        <td><strong>Total PO Value</strong></td>
+        <td>LKR {total_value:,.2f}</td>
+      </tr>
+    </table>
+    
+    <div class="terms-box">
+      <div style="font-weight: bold; margin-bottom: 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #555555;">Commercial & Delivery Terms</div>
+      <table width="100%" style="font-size: 14px; font-family: Arial, sans-serif; line-height: 1.8;">
         <tr>
-          <td style="background:linear-gradient(135deg,#1a2430 0%,#2c3e50 100%);padding:28px 32px;">
-            <table width="100%"><tr>
-              <td>
-                <div style="color:#d9a441;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;">OMNI Procurement System</div>
-                <div style="color:#ffffff;font-size:22px;font-weight:700;">Purchase Order</div>
-              </td>
-              <td align="right">
-                <div style="background:#d9a441;color:#1a2430;font-size:18px;font-weight:800;padding:10px 18px;border-radius:10px;letter-spacing:1px;">
-                  #PO-{po_id:04d}
-                </div>
-              </td>
-            </tr></table>
-          </td>
+          <td width="50%"><strong>Deliver To:</strong> {destination}</td>
+          <td width="50%"><strong>Payment Terms:</strong> {payment_terms}</td>
         </tr>
-
-        <!-- Meta row -->
         <tr>
-          <td style="background:#f1f5f9;padding:14px 32px;border-bottom:1px solid #e2e8f0;">
-            <table width="100%"><tr>
-              <td style="font-size:12px;color:#64748b;">
-                <b style="color:#1e293b;">Date:</b> {order_date}
-              </td>
-              <td align="center" style="font-size:12px;color:#64748b;">
-                <b style="color:#1e293b;">Expected Delivery:</b> {delivery}
-              </td>
-              <td align="right">
-                <span style="background:#dcfce7;color:#166534;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;border:1px solid #bbf7d0;">✓ AUTHORIZED</span>
-              </td>
-            </tr></table>
-          </td>
+          <td><strong>Expected Delivery:</strong> {delivery}</td>
+          <td><strong>Incoterms:</strong> {incoterms}</td>
         </tr>
-
-        <!-- Supplier & Delivery -->
         <tr>
-          <td style="padding:24px 32px 0;">
-            <table width="100%" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-              <tr style="background:#f8fafc;">
-                <td style="padding:10px 16px;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #e2e8f0;" width="50%">SUPPLIER</td>
-                <td style="padding:10px 16px;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #e2e8f0;border-left:1px solid #e2e8f0;">DELIVER TO</td>
-              </tr>
-              <tr>
-                <td style="padding:14px 16px;vertical-align:top;border-right:1px solid #e2e8f0;">
-                  <div style="font-weight:700;font-size:14px;color:#1e293b;">{supplier}</div>
-                  <div style="color:#64748b;font-size:13px;margin-top:4px;">{email}</div>
-                  <div style="color:#94a3b8;font-size:12px;margin-top:2px;">{country}</div>
-                </td>
-                <td style="padding:14px 16px;vertical-align:top;">
-                  <div style="font-weight:600;font-size:14px;color:#1e293b;">{destination}</div>
-                  <div style="color:#64748b;font-size:13px;margin-top:4px;">Authorized by: {approved_by}</div>
-                </td>
-              </tr>
-            </table>
-          </td>
+          <td colspan="2"><strong>Required Compliance:</strong> {compliance}</td>
         </tr>
-
-        <!-- Items Table -->
-        <tr>
-          <td style="padding:24px 32px 0;">
-            <div style="font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">ORDER ITEMS</div>
-            <table width="100%" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:collapse;">
-              <tr style="background:#f8fafc;">
-                <td style="padding:10px 16px;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #e2e8f0;">FIELD</td>
-                <td style="padding:10px 16px;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #e2e8f0;">VALUE</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #f1f5f9;">Material</td>
-                <td style="padding:8px 16px;font-weight:600;font-size:13px;border-bottom:1px solid #f1f5f9;">{material}</td>
-              </tr>
-              <tr style="background:#fafafa;">
-                <td style="padding:8px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #f1f5f9;">Colour / Shade</td>
-                <td style="padding:8px 16px;font-weight:600;font-size:13px;border-bottom:1px solid #f1f5f9;">{colour}</td>
-              </tr>
-              {dim_rows}
-              <tr>
-                <td style="padding:8px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #f1f5f9;">Quantity</td>
-                <td style="padding:8px 16px;font-weight:600;font-size:13px;border-bottom:1px solid #f1f5f9;">{qty:,} {unit}</td>
-              </tr>
-              <tr style="background:#fafafa;">
-                <td style="padding:8px 16px;color:#64748b;font-size:13px;border-bottom:1px solid #f1f5f9;">Unit Price</td>
-                <td style="padding:8px 16px;font-weight:600;font-size:13px;border-bottom:1px solid #f1f5f9;">LKR {price_per_u:,.2f} / {unit[:-1] if unit.endswith('s') else unit}</td>
-              </tr>
-              <tr style="background:#fffbf0;">
-                <td style="padding:10px 16px;color:#92400e;font-size:13px;font-weight:700;border-bottom:1px solid #f1f5f9;">Total Value</td>
-                <td style="padding:10px 16px;font-weight:800;font-size:15px;color:#d9a441;border-bottom:1px solid #f1f5f9;">LKR {total_value:,.2f}</td>
-              </tr>
-              <tr style="background:#f0fdf4;">
-                <td style="padding:8px 16px;color:#166534;font-size:12px;border-bottom:1px solid #f1f5f9;">Compliance</td>
-                <td style="padding:8px 16px;font-size:12px;color:#15803d;border-bottom:1px solid #f1f5f9;">✓ {compliance}</td>
-              </tr>
-              {notes_section}
-            </table>
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="padding:24px 32px 28px;">
-            <div style="border-top:1px solid #e2e8f0;padding-top:20px;text-align:center;">
-              <div style="font-size:11px;color:#94a3b8;">This Purchase Order was generated by <b style="color:#64748b;">OMNI Procurement System</b>.</div>
-              <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Please confirm receipt and expected delivery date by replying to this email.</div>
-              <div style="margin-top:12px;font-size:10px;color:#cbd5e1;">© {datetime.today().year} OMNI · Operational Multi-Agent Network Intelligence</div>
-            </div>
-          </td>
-        </tr>
-
       </table>
-    </td></tr>
-  </table>
+      {notes_html}
+    </div>
+    
+    <div class="body-text">
+      Please confirm receipt of this Purchase Order and formally acknowledge the expected delivery date by replying to this communication. Should you have any queries regarding these specifications or commercial terms, please do not hesitate to contact us immediately.
+    </div>
+    
+    <div class="sign-off">
+      Sincerely,<br>
+      <div style="font-family: 'Brush Script MT', 'Lucida Handwriting', cursive; font-size: 28px; color: #1a365d; margin: 15px 0;">{approved_by}</div>
+      <strong>{approved_by}</strong><br>
+      Authorized Representative<br>
+      OMNI Procurement System
+    </div>
+    
+    <div class="footer">
+      This is a digitally authorized purchase order generated by OMNI (Operational Multi-Agent Network Intelligence).<br>
+      &copy; {datetime.today().year} OMNI Corporation
+    </div>
+  </div>
 </body>
 </html>"""
 

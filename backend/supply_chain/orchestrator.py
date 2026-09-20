@@ -44,6 +44,7 @@ class PipelineState(TypedDict, total=False):
     destination:         str
     approved_by:         str
     targeted_supplier:   str | None   # Scenario A: user named a specific supplier
+    po_details:          dict | None  # material_name, color_spec, unit, etc from chatbot
 
     # Agent 1 output
     supplier:            dict | None
@@ -132,6 +133,26 @@ async def node_draft_po(state: PipelineState) -> PipelineState:
             "total_value": state["total_value"],
             "status": "pending_approval"
         }
+
+        # ── Save po_details (material_name, color_spec, etc.) to SQLite ──
+        po_details = state.get("po_details") or {}
+        if po_details and po.get("po_id"):
+            try:
+                sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
+                if sqlite_dir not in sys.path:
+                    sys.path.insert(0, sqlite_dir)
+                from db import get_erp_db_connection
+                import json as _json
+                conn = get_erp_db_connection()
+                conn.execute(
+                    "UPDATE purchase_orders SET po_details = ? WHERE po_id = ?",
+                    (_json.dumps(po_details), po["po_id"])
+                )
+                conn.commit()
+                conn.close()
+                print(f"  [Orchestrator] po_details saved for PO #{po['po_id']}")
+            except Exception as detail_err:
+                print(f"  [Orchestrator] Could not save po_details: {detail_err}")
 
         elapsed = time.time() - start_time
         print(f"[Timer] node_draft_po took {elapsed:.2f} seconds.")
@@ -253,6 +274,7 @@ async def start_pipeline(
     compliance_keywords: list[str],
     destination: str = "Colombo, LK",
     targeted_supplier: str | None = None,
+    po_details: dict | None = None,
 ) -> dict:
     """Run 1: Sourcing + Draft PO. Returns run_id and paused state."""
     run_id = str(uuid.uuid4())
@@ -266,6 +288,7 @@ async def start_pipeline(
         "compliance_keywords": compliance_keywords,
         "destination":         destination,
         "targeted_supplier":   targeted_supplier,
+        "po_details":          po_details or {},
         "status":              "running",
     }
 

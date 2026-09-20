@@ -22,6 +22,7 @@ class RunRequest(BaseModel):
     compliance_keywords: list[str]  = []
     destination:         str        = "Colombo, LK"
     targeted_supplier:   str | None = None
+    po_details:          dict       = {}  # material_name, color_spec, unit from chatbot
 
 
 class ApproveRequest(BaseModel):
@@ -188,6 +189,7 @@ async def run_pipeline(request: RunRequest):
             compliance_keywords=request.compliance_keywords,
             destination=request.destination,
             targeted_supplier=request.targeted_supplier,
+            po_details=request.po_details,
         )
 
         if result.get("status") == "failed":

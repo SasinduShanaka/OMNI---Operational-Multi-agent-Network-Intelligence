@@ -4,6 +4,7 @@ import { supplyChainApi } from '../api/supplyChainApi'
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const { draft, messages, isAsking, error } = chatState
 
   function updateChatState(patch) {
@@ -13,12 +14,11 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     }))
   }
 
-  async function handleSend() {
-    if (!draft.trim() || isAsking) {
+  async function handleSend(actionText = null) {
+    const userMessage = typeof actionText === 'string' ? actionText : draft.trim()
+    if (!userMessage || isAsking) {
       return
     }
-
-    const userMessage = draft.trim()
 
     updateChatState({
       messages: [
@@ -41,6 +41,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         },
         body: JSON.stringify({
           message: userMessage,
+          session_id: sessionId
         }),
       })
 
@@ -50,6 +51,10 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         throw new Error(
           data?.detail?.message || data?.detail || `Request failed: ${response.status}`
         )
+      }
+      
+      if (data.session_id && data.session_id !== sessionId) {
+        setSessionId(data.session_id)
       }
 
       updateChatState({
@@ -154,7 +159,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse data={item.data} setActivePage={setActivePage} setScQuery={setScQuery} />
+                  <AgentResponse 
+                    data={item.data} 
+                    setActivePage={setActivePage} 
+                    setScQuery={setScQuery}
+                    handleSend={handleSend}
+                  />
                 )}
 
               </div>
@@ -281,7 +291,7 @@ function UserMessage({ text }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery }) {
+function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
   if (!data) {
     return null
   }
@@ -345,6 +355,29 @@ function AgentResponse({ data, setActivePage, setScQuery }) {
 
       )}
 
+      {/* ======================================================
+          SHADE SELECTION
+      ====================================================== */}
+
+      {data.status === 'needs_shade_selection' && data.shades && (
+        <div className="mt-4 p-4 border border-[#e2e8f0] rounded-xl bg-white shadow-sm max-w-sm">
+          <p className="text-sm font-semibold text-slate-800 mb-3">Select a Shade</p>
+          <div className="grid grid-cols-5 gap-2">
+            {data.shades.map((shade, i) => (
+              <button 
+                key={i}
+                onClick={() => handleSend && handleSend(shade.name)}
+                className="group relative flex flex-col items-center justify-center rounded-lg border border-slate-200 overflow-hidden hover:border-[#b87d39] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#d9a441]/40 transition"
+              >
+                <div className="w-full h-10" style={{ backgroundColor: shade.hex }}></div>
+                <div className="w-full text-[10px] text-center font-medium text-slate-600 py-1.5 bg-slate-50 group-hover:bg-white truncate px-1">
+                  {shade.name}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ======================================================
           PROCUREMENT

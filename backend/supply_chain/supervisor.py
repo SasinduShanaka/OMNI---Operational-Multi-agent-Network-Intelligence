@@ -57,7 +57,7 @@ def process_chat_message(user_message: str) -> SupervisorDecision:
         return _deterministic_decision(user_message)
 
     try:
-        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+        llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
         structured_llm = llm.with_structured_output(SupervisorDecision)
 
         prompt = ChatPromptTemplate.from_messages([
@@ -151,72 +151,36 @@ def _deterministic_decision(user_message: str) -> SupervisorDecision:
 # Multi-turn Requirements Gathering
 # ------------------------------------------------------------------
 
-GATHER_SYSTEM_PROMPT = """You are an expert procurement assistant for a garment & textile supply chain.
-Your job: collect ALL required information through a friendly, professional conversation, then output a structured JSON.
+GATHER_SYSTEM_PROMPT = """You are a procurement assistant for a textile supply chain.
+Collect these fields through a friendly conversation, then return a JSON summary.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 1 — Detect product type from what the user says.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Map to material_type:
-• "fabric_mill": cotton, woven fabric, denim, fleece, lining, interlining, padding, wadding, shoulder pad, bias tape, piping
-• "trim_vendor": zipper, button, snap, rivet, eyelet, velcro, thread, embroidery thread, label, hang tag, cord, drawstring, elastic, sequin, bead, polybag
-• "dye_house": dye, reactive dye, disperse dye, acid dye, vat dye, dyeing service, color treatment
+FIELDS TO COLLECT (ask only for what is missing, ONE question at a time):
+1. material_type  - map to: "fabric_mill" (cotton/fabric/denim/fleece), "trim_vendor" (zipper/button/trim/label), "dye_house" (dye/dyeing)
+2. material_name  - brief description e.g. "Organic Cotton 180gsm", "YKK Coil Zipper 20cm"
+3. qty            - integer number (e.g. 400)
+4. unit           - meters / pieces / kg / liters / yards
+5. color_base     - Ask the user for the general base color they want (e.g., "White", "Blue", "Green", "Red", "Grey", "Brown").
+6. color_spec     - If color_base is known, ask them to select the exact shade: "Please select the exact shade of {color_base}:"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 2 — Ask ONLY for missing fields, ONE at a time.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Always collect:
-A) material_name — exact spec (e.g. "Organic Cotton 180gsm", "YKK Coil Zipper")
-B) qty           — number only (e.g. 500)
-C) unit          — meters / pieces / kg / liters / rolls / cones / pairs / sets / gross
-D) color_spec    — colour or shade; use "Natural/Undyed" if not applicable
-E) compliance_keywords — e.g. ["Organic Cotton","Child-Labor Free","OEKO-TEX"]; use [] if none
-F) destination   — city and country (e.g. "Colombo, LK")
-G) dimensions    — product-specific technical specs (see table below)
+RULES:
+- Ask exactly ONE question per turn.
+- Accept any answer the user gives for color or dimensions.
+- If compliance is not mentioned, set compliance_keywords to [].
+- DO NOT ask for destination. It is ALWAYS "Colombo, Sri Lanka".
+- Once you have all fields (including color_spec), output status "ready" immediately.
+- Only two valid status values: "needs_more_info" or "ready". Never output any other status.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DIMENSIONS TABLE — ask ONLY the fields relevant to the product:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 1 Cotton/Woven Fabric   → width_inches (44/54/60/72), gsm
- 2 Fleece/Knit Fabric    → gsm, width_inches
- 3 Denim Fabric          → oz_weight (e.g. 12), width_inches
- 4 Lining Fabric         → width_inches, composition (e.g. "100% polyester")
- 5 Interlining/Fusible   → gsm, width_inches, fusible ("yes"/"no")
- 6 Elastic Band          → width_mm (e.g. 25), stretch_pct (e.g. 120)
- 7 Zipper                → length_cm, zipper_type ("coil"/"metal"/"invisible"/"waterproof"), brand (e.g. "YKK")
- 8 Button                → diameter_mm, holes (2/4/"shank"), material ("plastic"/"metal"/"wood"/"corozo")
- 9 Snap Button/Press Stud→ diameter_mm, material ("brass"/"stainless"/"plastic")
-10 Rivet/Jeans Button    → cap_dia_mm, post_length_mm
-11 Eyelet/Grommet        → inner_dia_mm, material ("brass"/"stainless"/"aluminium")
-12 Velcro/Hook&Loop      → width_mm, velcro_type ("sew-on"/"adhesive"/"iron-on")
-13 Sewing Thread         → thread_count (e.g. "40/2"), fibre ("polyester"/"cotton"/"nylon")
-14 Embroidery Thread     → thread_count (e.g. "40wt"), fibre ("rayon"/"polyester"/"cotton"), colour_code
-15 Woven Label           → size_mm (e.g. "50x30"), num_colours, label_content ("brand"/"care"/"size")
-16 Printed/HT Label      → size_mm, print_type ("heat-transfer"/"screen-print"/"digital")
-17 Hang Tag/Price Tag    → size_mm, tag_material ("card"/"plastic"), holes (0/1/2)
-18 Cord/Drawstring       → diameter_mm, material ("cotton"/"polyester"/"nylon")
-19 Bias Tape             → width_mm, fold_type ("single"/"double"/"bias")
-20 Piping/Cord Trim      → diameter_mm, fabric_covered ("yes"/"no")
-21 Shoulder Pad          → thickness_mm, pad_shape ("set-in"/"raglan"/"extended-shoulder")
-22 Padding/Wadding       → gsm, width_inches, fill_type ("polyester"/"down"/"recycled")
-23 Sequins/Beads         → size_mm, shape ("round"/"oval"/"cup"/"flat"), material ("plastic"/"metal")
-24 Dye/Chemical          → dye_class ("reactive"/"disperse"/"acid"/"vat"/"pigment"), shade, depth_owf (e.g. "3%")
-25 Polybag/Packaging     → size_cm (e.g. "40x60"), micron (e.g. 50), printed ("yes"/"no")
+Output format when still gathering:
+{"status":"needs_more_info","question":"<your single question here>"}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 3 — When ALL fields are collected, output ONLY this JSON (no extra text, no markdown):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{"status":"ready","material_type":"fabric_mill","material_name":"Organic Cotton 180gsm","qty":500,"unit":"meters","color_spec":"Navy Blue","dimensions":{"width_inches":60,"gsm":180},"compliance_keywords":["Organic Cotton","Child-Labor Free"],"destination":"Colombo, LK","requirement_id":2,"total_value":127500.0}
+Output format when ALL fields are known:
+{"status":"ready","material_type":"fabric_mill","material_name":"Organic Cotton 180gsm","qty":400,"unit":"meters","color_base":"Green","color_spec":"Dark Green","compliance_keywords":[],"destination":"Colombo, Sri Lanka","requirement_id":2,"total_value":104000.0}
 
-Mappings:
-- requirement_id: fabric_mill=2, trim_vendor=4, dye_house=5
-- total_value: trim_vendor = qty * 15, others = qty * 260
+requirement_id: fabric_mill=2, trim_vendor=4, dye_house=5
+total_value: trim_vendor = qty*15.0, all others = qty*260.0
 
-If not ready, output ONLY:
-{"status":"needs_more_info","question":"What is the fabric width? (e.g. 44, 60, or 72 inches)"}
+CRITICAL: Output ONLY valid JSON. No markdown, no code fences, no explanations."""
 
-CRITICAL: Response must be valid JSON only. No markdown, no code fences, no explanation text whatsoever.
-"""
 
 
 def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -239,7 +203,7 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
             messages.append({"role": msg["role"], "content": msg["content"]})
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-20b",
             messages=messages,
             temperature=0,
             max_tokens=600,
@@ -251,6 +215,12 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
         raw = re.sub(r"\s*```$", "", raw)
 
         result = json.loads(raw)
+
+        # Normalise: only allow 'needs_more_info' or 'ready'
+        if result.get("status") not in ("needs_more_info", "ready"):
+            question = result.get("question") or result.get("message") or "Could you provide more details?"
+            result = {"status": "needs_more_info", "question": question}
+
         return result
 
     except Exception as e:
@@ -428,35 +398,23 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
         collected["unit"] = "meters" if mat == "fabric_mill" else ("kg" if mat == "dye_house" else "pieces")
     
     if "color_spec" not in collected:
-        if "base_color" in collected:
-            base = collected["base_color"]
-            return {
-                "status": "needs_shade_selection",
-                "question": f"Please select the exact shade of {base}:",
-                "shades": generate_color_gradient(base)
-            }
-        else:
-            # See if there's a hardcoded color in all_text
-            found_color = extract_color(all_text)
-            if found_color:
-                return {
-                    "status": "needs_shade_selection",
-                    "question": f"Please select the exact shade of {found_color}:",
-                    "shades": generate_color_gradient(found_color)
-                }
-            
-            prompt = ("What colour or shade do you need? (e.g. Navy Blue, Natural/Undyed)"
-                      if mat != "dye_house" else
-                      "What shade name do you need? (e.g. Navy Blue, Forest Green)")
+        if "color_base" in collected:
+            base = collected["color_base"]
+            prompt = f"Please select the exact shade of {base}:"
             if context_switch_detected:
                 prompt = "I can only assist with gathering procurement details right now. " + prompt
             return {"status": "needs_more_info", "question": prompt}
-
-    if not collected.get("dimensions") and mat == "fabric_mill":
-        prompt = "What is the fabric width? (e.g. 44, 54, 60, or 72 inches)"
-        if context_switch_detected:
-            prompt = "I can only assist with gathering procurement details right now. " + prompt
-        return {"status": "needs_more_info", "question": prompt}
+        else:
+            found_color = extract_color(all_text)
+            if found_color:
+                collected["color_base"] = found_color
+                prompt = f"Please select the exact shade of {found_color}:"
+                return {"status": "needs_more_info", "question": prompt}
+            
+            prompt = "What base colour do you need? (e.g. White, Blue, Green, Red, Grey)"
+            if context_switch_detected:
+                prompt = "I can only assist with gathering procurement details right now. " + prompt
+            return {"status": "needs_more_info", "question": prompt}
 
     qty   = collected["qty"]
     total = qty * 15.0 if mat == "trim_vendor" else qty * 260.0
@@ -467,10 +425,10 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
         "material_name": collected.get("color_spec", "Standard") + " material",
         "qty": qty,
         "unit": collected["unit"],
-        "color_spec": collected.get("color_spec", "any"),
-        "dimensions": collected.get("dimensions", {}),
+        "color_base": collected.get("color_base", "Any"),
+        "color_spec": collected.get("color_spec", "Any"),
         "compliance_keywords": collected.get("compliance_keywords", []),
-        "destination": "Colombo, LK",
+        "destination": "Colombo, Sri Lanka",
         "requirement_id": collected.get("requirement_id", 2),
         "total_value": total,
     }
