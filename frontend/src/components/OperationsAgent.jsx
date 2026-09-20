@@ -202,21 +202,22 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
   ]
 
   return (
-    <section className="w-full min-w-0 h-full flex flex-col p-3 sm:p-8">
+    <section className="h-full w-full min-w-0 flex flex-col p-3 sm:px-6 sm:py-4">
 
       {/* Header */}
-      <div className="mb-5 flex-shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
+      <div className="mb-3 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 px-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+            Ask Omni
+          </h2>
+          <p className="text-sm text-[#64748b]">
+            Factory operations assistant for stock, sourcing, and production planning
+          </p>
+        </div>
+        <div className="inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0]">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
           Factory assistant
         </div>
-        <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-          Ask Omni
-        </h2>
-
-        <p className="text-sm text-[#64748b] mt-2">
-          Factory operations assistant for stock, sourcing, and production planning
-        </p>
       </div>
 
 
@@ -229,7 +230,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
           <SystemReadiness />
 
           {messages.length === 0 && (
-            <div className="flex items-center justify-center min-h-[400px]">
+            <div className="flex min-h-[260px] items-center justify-center sm:min-h-[300px]">
 
               <div className="text-center max-w-md">
 
