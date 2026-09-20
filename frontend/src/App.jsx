@@ -6,6 +6,7 @@ import SupplyChainPanel from './components/SupplyChainPanel'
 import DemandForecastPage from './components/DemandForecastPage'
 import ProductionPage from './components/ProductionPage'
 import ReportsPage from './components/ReportsPage'
+import { FloatCard, SceneStage } from './components/FactoryScene'
 
 
 // ============================================================
@@ -16,243 +17,181 @@ const API_BASE_URL = 'http://127.0.0.1:8000'
 
 
 // ============================================================
-// SIDEBAR
+// TOP NAVIGATION
 // ============================================================
 
-function Sidebar({ activePage, setActivePage }) {
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Dashboard', icon: '▦' },
+  { id: 'operations', label: 'Ask Omni', icon: '◯' },
+  { id: 'inventory', label: 'Fabric stock', icon: '◇' },
+  { id: 'forecast', label: 'Demand forecast', icon: '⌁' },
+  { id: 'supplier', label: 'Supplier intel', icon: '▱' },
+  { id: 'production', label: 'Line planning', icon: '⚙' },
+  { id: 'reports', label: 'Factory reports', icon: '▤' },
+]
 
-  const navigation = [
-    {
-      section: 'OVERVIEW',
-      items: [
-        {
-          id: 'dashboard',
-          label: 'Dashboard',
-          icon: '▦',
-        },
-      ],
-    },
 
-    {
-      section: 'AGENTS',
-      items: [
-        {
-          id: 'operations',
-          label: 'Ask Omni',
-          icon: '◯',
-        },
-        {
-          id: 'inventory',
-          label: 'Fabric stock',
-          icon: '◇',
-        },
-        {
-          id: 'forecast',
-          label: 'Demand forecast',
-          icon: '⌁',
-        },
-        {
-          id: 'supplier',
-          label: 'Supplier intel',
-          icon: '▱',
-        },
-        {
-          id: 'production',
-          label: 'Line planning',
-          icon: '⚙',
-        },
-        {
-          id: 'reports',
-          label: 'Factory reports',
-          icon: '▤',
-        },
-      ],
-    },
-  ]
-
+function TopNav({ activePage, setActivePage }) {
 
   return (
 
-    <aside
+    <header
       className="
-        w-[220px]
-        h-screen
-        bg-[#1a2430]
-        text-white
-        flex
-        flex-col
+        sticky
+        top-0
+        z-30
         flex-shrink-0
-        overflow-hidden
-        shadow-[inset_-1px_0_0_rgba(255,255,255,0.08)]
+        border-b
+        border-slate-200
+        bg-white/85
+        backdrop-blur-xl
       "
     >
 
-      {/* ================================================== */}
-      {/* BRAND */}
-      {/* ================================================== */}
+      <div className="flex h-16 items-center gap-6 px-6">
 
-      <div
-        className="
-          h-[60px]
-          px-5
-          flex
-          items-center
-          gap-3
-          border-b
-          border-white/10
-        "
-      >
+        {/* ============================================== */}
+        {/* BRAND */}
+        {/* ============================================== */}
 
-        <div
-          className="
-            w-8
-            h-8
-            rounded-lg
-            bg-gradient-to-br from-[#d9a441] via-[#b87d39] to-[#7d5d2f]
-            flex
-            items-center
-            justify-center
-            text-sm
-            font-bold
-            text-[#fffaf1]
-            shadow-md
-          "
-        >
-          O
-        </div>
-
-        <span
-          className="
-            text-sm
-            font-semibold
-            tracking-wide
-          "
-        >
-          OMNI management
-        </span>
-
-      </div>
-
-
-      {/* ================================================== */}
-      {/* NAVIGATION */}
-      {/* ================================================== */}
-
-      <nav className="flex-1 px-2 py-4 overflow-hidden">
-
-        {navigation.map((group) => (
+        <div className="flex items-center gap-3 flex-shrink-0">
 
           <div
-            key={group.section}
-            className="mb-5"
+            className="
+              flex
+              h-9
+              w-9
+              items-center
+              justify-center
+              rounded-xl
+              bg-gradient-to-br from-[#3b82f6] via-[#2563eb] to-[#1e40af]
+              text-sm
+              font-bold
+              text-white
+              shadow-[0_6px_16px_rgba(37,99,235,0.35)]
+            "
           >
+            O
+          </div>
 
-            <p
-              className="
-                px-2
-                mb-2
-                text-[10px]
-                uppercase
-                tracking-wider
-                text-white/30
-              "
-            >
-              {group.section}
-            </p>
+          <span className="text-sm font-semibold tracking-tight text-slate-900">
+            OMNI management
+          </span>
+
+        </div>
 
 
-            {group.items.map((item) => (
+        {/* ============================================== */}
+        {/* NAVIGATION PILLS */}
+        {/* ============================================== */}
 
+        <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
+
+          {NAV_ITEMS.map((item) => {
+
+            const isActive = activePage === item.id
+
+            return (
               <button
                 key={item.id}
                 onClick={() => setActivePage(item.id)}
+                aria-current={isActive ? 'page' : undefined}
                 className={`
-                  w-full
                   flex
+                  flex-shrink-0
                   items-center
-                  gap-3
-                  px-3
-                  py-2.5
-                  mb-1
-                  rounded-lg
-                  text-left
+                  gap-2
+                  rounded-xl
+                  px-3.5
+                  py-2
                   text-sm
                   transition
                   ${
-                    activePage === item.id
-                      ? 'bg-[#d9a441]/15 text-[#f8f0df] border border-[#d9a441]/30'
-                      : 'text-white/65 hover:bg-white/5 hover:text-white'
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-[0_6px_16px_rgba(15,23,42,0.25)]'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }
                 `}
               >
-
-                <span
-                  className="
-                    w-4
-                    text-center
-                    text-sm
-                  "
-                >
-                  {item.icon}
-                </span>
-
-                <span>
-                  {item.label}
-                </span>
-
+                <span className="text-xs">{item.icon}</span>
+                <span className="whitespace-nowrap">{item.label}</span>
               </button>
+            )
+          })}
 
-            ))}
-
-          </div>
-
-        ))}
-
-      </nav>
+        </nav>
 
 
-      {/* ================================================== */}
-      {/* FOOTER */}
-      {/* ================================================== */}
+        {/* ============================================== */}
+        {/* STATUS */}
+        {/* ============================================== */}
 
-      <div
-        className="
-          px-4
-          py-4
-          border-t
-          border-white/10
-          text-xs
-          text-white/60
-        "
-      >
-
-        <span
+        <div
           className="
-            inline-block
-            w-2
-            h-2
+            hidden
+            flex-shrink-0
+            items-center
+            gap-2
             rounded-full
-            bg-emerald-400
-            mr-2
+            border
+            border-slate-200
+            bg-slate-50
+            px-3
+            py-1.5
+            text-xs
+            text-slate-600
+            lg:flex
           "
-        />
-
-        All 6 agents synced
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          All 6 agents synced
+        </div>
 
       </div>
 
-    </aside>
+    </header>
   )
 }
 
 
 // ============================================================
 // DASHBOARD PAGE
+// ------------------------------------------------------------
+// The factory render is the page. Every card floats on top of
+// it: a tall stack on the left, the output panels on the right,
+// the queue and floor map along the bottom.
 // ============================================================
+
+const ALERTS = [
+  { title: 'Fabric stock sync complete', subtitle: 'Fabric inventory agent', status: 'Online', statusType: 'success' },
+  { title: 'Demand forecast recalculated', subtitle: 'Merchandising agent', status: 'Updated', statusType: 'info' },
+  { title: 'Supplier lead times monitored', subtitle: 'Procurement agent', status: 'Stable', statusType: 'info' },
+  { title: 'Line efficiency risk flagged', subtitle: 'Production planning agent', status: 'Watch', statusType: 'warning' },
+]
+
+const AGENTS = [
+  { title: 'Fabric inventory agent', subtitle: 'Bin + roll level sync', status: 'Online', statusType: 'success' },
+  { title: 'Demand forecast agent', subtitle: 'Season SS26 model', status: 'Updated', statusType: 'info' },
+  { title: 'Supplier intelligence agent', subtitle: 'Lead time watch', status: 'Stable', statusType: 'info' },
+  { title: 'Line planning agent', subtitle: 'Line 3 finishing risk', status: 'Watching', statusType: 'warning' },
+  { title: 'Ask Omni', subtitle: 'Operations copilot', status: 'Online', statusType: 'success' },
+  { title: 'Factory report agent', subtitle: 'Nightly pack', status: 'Ready', statusType: 'info' },
+]
+
+const REORDERS = [
+  { material: 'Black Cotton Fabric', vendor: 'Textile Hub', qty: '4,000 m', eta: '2 days', status: 'In transit', tone: 'amber' },
+  { material: 'Oxford Twill', vendor: 'Prime Weave', qty: '1,800 m', eta: '5 days', status: 'Queued', tone: 'sky' },
+  { material: 'Elastic Rib', vendor: 'North Stitch', qty: '900 kg', eta: '1 day', status: 'Ready', tone: 'emerald' },
+]
+
+const OUTPUT_TREND = [48, 62, 58, 74, 80, 92, 88]
+
 
 function DashboardPage({ setActivePage }) {
 
   const [health, setHealth] = useState(null)
+
+  const [feedTab, setFeedTab] = useState('all')
 
   async function checkHealth() {
 
@@ -284,566 +223,214 @@ function DashboardPage({ setActivePage }) {
   }, [])
 
 
+  const feedRows =
+    feedTab === 'alerts' ? ALERTS : feedTab === 'agents' ? AGENTS : [...ALERTS, ...AGENTS]
+
+
   return (
 
-    <div className="p-8">
-
-      {/* ================================================== */}
-      {/* HEADER */}
-      {/* ================================================== */}
-
-      <div
-        className="
-          flex
-          items-start
-          justify-between
-          mb-6
-        "
-      >
-
-        <div>
-
-          <div className="flex items-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3]">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-              Factory live
-            </span>
-          </div>
-
-          <h1
-            className="
-              text-3xl
-              font-semibold
-              text-slate-900
-              tracking-tight
-            "
-          >
-            Garment operations overview
-          </h1>
-
-          <p
-            className="
-              text-sm
-              text-[#86612b]
-              mt-2
-            "
-          >
-            Factory intelligence across fabric, production, and delivery · updated just now
-          </p>
-
-        </div>
-
-
-        <button
-          onClick={checkHealth}
-          className="
-            px-4
-            py-2.5
-            rounded-xl
-            bg-white
-            border
-            border-slate-200
-            text-sm
-            text-slate-700
-            shadow-sm
-            hover:bg-slate-50
-            transition
-          "
-        >
-          ↻ Refresh
-        </button>
-
-      </div>
-
-      <div className="mb-6 rounded-2xl border border-[#e7dcc7] bg-gradient-to-r from-[#1f3a36] via-[#2d4a46] to-[#2e3d4f] p-5 text-white shadow-[0_18px_40px_rgba(31,58,54,0.18)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-[#d7c9ae]">Production pulse</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Weekly output on target</h2>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-white/10 px-3 py-2 text-right">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#d7c9ae]">Plan vs actual</div>
-              <div className="mt-1 text-lg font-semibold">98.2%</div>
-            </div>
-            <div className="rounded-xl bg-emerald-500/20 px-3 py-2 text-right border border-emerald-300/20">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-100">Efficiency</div>
-              <div className="mt-1 text-lg font-semibold">+4.6%</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-      {/* ================================================== */}
-      {/* METRICS */}
-      {/* ================================================== */}
+    <SceneStage scene="overview">
 
       <div
         className="
           grid
+          min-h-[calc(100vh-4rem)]
           grid-cols-1
-          md:grid-cols-2
-          xl:grid-cols-4
           gap-4
-          mb-6
+          p-4
+          pt-8
+          xl:h-[calc(100vh-4rem)]
+          xl:grid-cols-[20rem_minmax(0,1fr)_20rem]
+          xl:grid-rows-[auto_minmax(0,1fr)_auto]
+          xl:gap-5
+          xl:px-5
+          xl:pb-5
+          xl:pt-[7.5rem]
         "
       >
 
-        <MetricCard
-          title="Fabric SKUs tracked"
-          value="184"
-          subtitle="Material master"
-          accent="amber"
-        />
+        {/* ============================================== */}
+        {/* CENTRE — heading sits straight above the queue */}
+        {/* ============================================== */}
 
-        <MetricCard
-          title="Cutting yield"
-          value="96.4%"
-          subtitle="Current production run"
-          accent="green"
-        />
+        <div className="flex flex-col justify-end gap-4 xl:col-start-2 xl:row-span-3 xl:row-start-1 xl:gap-5">
 
-        <MetricCard
-          title="Open POs"
-          value="27"
-          subtitle="Supplier pipeline"
-          accent="slate"
-        />
+          <div className="flex flex-wrap items-end justify-between gap-3">
 
-        <MetricCard
-          title="Line adherence"
-          value="94.8%"
-          subtitle="Production schedule"
-          accent="indigo"
-        />
+            <div className="rounded-2xl border border-white/60 bg-white/70 px-4 py-3 backdrop-blur-xl">
 
-      </div>
+              <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                Factory live
+              </span>
 
+              <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-slate-900">
+                Garment operations overview
+              </h1>
 
-      {/* ================================================== */}
-      {/* CHART + LINE PERFORMANCE */}
-      {/* ================================================== */}
+              <p className="mt-1 text-[11px] text-slate-500">
+                Fabric, production and delivery · updated just now
+                {health && <span className="ml-2 text-slate-400">Backend: {health.status}</span>}
+              </p>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-4 mb-4">
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Output trend</p>
-              <h2 className="mt-2 text-lg font-semibold text-slate-900">Weekly production volume</h2>
             </div>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-600">+12.5%</span>
-          </div>
-
-          <div className="h-44 flex items-end gap-3 px-2 pb-2">
-            {[48, 62, 58, 74, 80, 92, 88].map((value, index) => (
-              <div key={index} className="flex-1 flex flex-col items-center justify-end gap-2">
-                <div
-                  className="w-full rounded-t-xl bg-gradient-to-t from-[#1f3a36] via-[#2d4a46] to-[#d9a441]"
-                  style={{ height: `${value}%` }}
-                />
-                <span className="text-[10px] text-slate-400">{['M','T','W','T','F','S','S'][index]}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Production by line</p>
-          <h2 className="mt-2 text-lg font-semibold text-slate-900 mb-4">Line performance</h2>
-
-          <div className="space-y-4">
-            <LinePerformance label="Line 1 - Knits" value={92} color="bg-[#1f3a36]" />
-            <LinePerformance label="Line 2 - Sewing" value={86} color="bg-[#d9a441]" />
-            <LinePerformance label="Line 3 - Finishing" value={78} color="bg-[#475569]" />
-            <LinePerformance label="Line 4 - QC" value={96} color="bg-[#2e7d6b]" />
-          </div>
-        </div>
-
-      </div>
 
 
-      {/* ================================================== */}
-      {/* TWO COLUMN AREA */}
-      {/* ================================================== */}
+            <div className="flex items-center gap-2">
 
-      <div
-        className="
-          grid
-          grid-cols-1
-          xl:grid-cols-2
-          gap-4
-        "
-      >
+              <button
+                onClick={() => setActivePage('inventory')}
+                className="rounded-xl bg-[#1d4ed8] px-3.5 py-2 text-xs font-medium text-white shadow-[0_8px_20px_rgba(29,78,216,0.32)] transition hover:bg-[#1e40af]"
+              >
+                Fabric stock
+              </button>
 
-        {/* LIVE ALERT FEED */}
+              <button
+                onClick={() => setActivePage('operations')}
+                className="rounded-xl border border-white/70 bg-white/80 px-3.5 py-2 text-xs font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
+              >
+                Ask Omni
+              </button>
 
-        <div
-          className="
-            bg-white
-            border
-            border-slate-200
-            rounded-xl
-            p-5
-          "
-        >
+              <button
+                onClick={checkHealth}
+                className="rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-xs text-slate-600 backdrop-blur-md transition hover:bg-white"
+                title="Refresh"
+              >
+                ↻
+              </button>
 
-          <h2
-            className="
-              text-xs
-              uppercase
-              tracking-wide
-              text-indigo-500
-              font-medium
-              mb-4
-            "
-          >
-            Live alert feed
-          </h2>
-
-
-          <div className="space-y-0">
-
-            <AlertRow
-              title="Fabric stock sync complete"
-              subtitle="Fabric inventory agent"
-              status="Online"
-              statusType="success"
-            />
-
-            <AlertRow
-              title="Demand forecast recalculated"
-              subtitle="Merchandising agent"
-              status="Updated"
-              statusType="info"
-            />
-
-            <AlertRow
-              title="Supplier lead times monitored"
-              subtitle="Procurement agent"
-              status="Stable"
-              statusType="info"
-            />
-
-            <AlertRow
-              title="Line efficiency risk flagged"
-              subtitle="Production planning agent"
-              status="Watch"
-              statusType="warning"
-            />
+            </div>
 
           </div>
+
+
+          <ReorderQueueCard setActivePage={setActivePage} />
 
         </div>
 
 
-        {/* AGENT HEALTH */}
+        {/* ============================================== */}
+        {/* LEFT STACK — pulse + live feed */}
+        {/* ============================================== */}
 
-        <div
-          className="
-            bg-white
-            border
-            border-slate-200
-            rounded-xl
-            p-5
-          "
-        >
+        <div className="flex min-h-0 flex-col gap-4 xl:col-start-1 xl:row-span-3 xl:row-start-1 xl:gap-5">
 
-          <h2
-            className="
-              text-xs
-              uppercase
-              tracking-wide
-              text-indigo-500
-              font-medium
-              mb-4
-            "
-          >
-            Agent health
-          </h2>
+          <ProductionPulseCard />
 
-
-          <AgentHealth
-            name="Fabric inventory agent"
-            status="Online"
-            statusType="success"
+          <ActivityFeedCard
+            tab={feedTab}
+            setTab={setFeedTab}
+            rows={feedRows}
           />
 
-          <AgentHealth
-            name="Demand forecast agent"
-            status="Updated"
-            statusType="info"
-          />
+        </div>
 
-          <AgentHealth
-            name="Supplier intelligence agent"
-            status="Stable"
-            statusType="info"
-          />
 
-          <AgentHealth
-            name="Line planning agent"
-            status="Watching"
-            statusType="warning"
-          />
+        {/* ============================================== */}
+        {/* RIGHT STACK — output trend + line split */}
+        {/* ============================================== */}
 
-          <AgentHealth
-            name="Ask Omni"
-            status="Online"
-            statusType="success"
-          />
+        <div className="flex flex-col justify-end gap-4 xl:col-start-3 xl:row-span-3 xl:row-start-1 xl:gap-5">
 
-          <AgentHealth
-            name="Factory report agent"
-            status="Ready"
-            statusType="info"
-          />
+          <OutputTrendCard />
+
+          <LineSplitCard />
 
         </div>
 
       </div>
 
-      <div className="mt-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Backlog</p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-900">Reorder queue</h2>
-          </div>
-          <button className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">
-            View all
-          </button>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 font-medium text-slate-600">Material</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Vendor</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Qty</th>
-                <th className="px-4 py-3 font-medium text-slate-600">ETA</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              <tr>
-                <td className="px-4 py-3 text-slate-800">Black Cotton Fabric</td>
-                <td className="px-4 py-3 text-slate-600">Textile Hub</td>
-                <td className="px-4 py-3 text-slate-800">4,000 m</td>
-                <td className="px-4 py-3 text-slate-600">2 days</td>
-                <td className="px-4 py-3"><span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">In transit</span></td>
-              </tr>
-              <tr>
-                <td className="px-4 py-3 text-slate-800">Oxford Twill</td>
-                <td className="px-4 py-3 text-slate-600">Prime Weave</td>
-                <td className="px-4 py-3 text-slate-800">1,800 m</td>
-                <td className="px-4 py-3 text-slate-600">5 days</td>
-                <td className="px-4 py-3"><span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-medium text-sky-700">Queued</span></td>
-              </tr>
-              <tr>
-                <td className="px-4 py-3 text-slate-800">Elastic Rib</td>
-                <td className="px-4 py-3 text-slate-600">North Stitch</td>
-                <td className="px-4 py-3 text-slate-800">900 kg</td>
-                <td className="px-4 py-3 text-slate-600">1 day</td>
-                <td className="px-4 py-3"><span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">Ready</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-
-      {/* ================================================== */}
-      {/* QUICK ACTIONS */}
-      {/* ================================================== */}
-
-      <div className="mt-6 flex gap-3">
-
-        <button
-          onClick={() => setActivePage('inventory')}
-          className="
-            px-4
-            py-2
-            rounded-lg
-            bg-[#1f3a36]
-            text-white
-            text-sm
-            hover:bg-[#274a44]
-          "
-        >
-          Open Fabric Stock
-        </button>
-
-        <button
-          onClick={() => setActivePage('operations')}
-          className="
-            px-4
-            py-2
-            rounded-lg
-            bg-white
-            border
-            border-stone-200
-            text-slate-700
-            text-sm
-            hover:bg-[#f8f3ed]
-          "
-        >
-          Ask Omni
-        </button>
-
-      </div>
-
-
-      {/* BACKEND STATUS */}
-
-      {health && (
-
-        <div
-          className="
-            mt-4
-            text-xs
-            text-slate-400
-          "
-        >
-          Backend: {health.status}
-        </div>
-
-      )}
-
-    </div>
+    </SceneStage>
   )
 }
 
 
 // ============================================================
-// METRIC CARD
+// PRODUCTION PULSE — headline output for the shift
 // ============================================================
 
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  accent = 'amber',
-}) {
-
-  const accentStyles = {
-    amber: 'bg-[#fff7ea] text-[#a76913] border-[#f4d9a8]',
-    green: 'bg-[#edfaf4] text-[#1d6a4a] border-[#bfe5cf]',
-    slate: 'bg-[#f3f4f6] text-[#425466] border-[#dfe3ea]',
-    indigo: 'bg-[#eef2ff] text-[#3f51b5] border-[#cdd7ff]',
-  }
+function ProductionPulseCard() {
 
   return (
 
-    <div
-      className="
-        bg-white
-        border
-        border-slate-200
-        rounded-2xl
-        p-5
-        shadow-[0_10px_25px_rgba(15,23,42,0.03)]
-        transition
-        hover:-translate-y-0.5
-        hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]
-      "
-    >
+    <FloatCard className="p-4">
 
-      <div className={`inline-flex rounded-lg border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] ${accentStyles[accent]}`}>
-        {title}
+      <CardHeader title="Production pulse" />
+
+      <p className="mt-3 text-[11px] text-slate-500">Units completed today</p>
+
+      <div className="mt-1 flex items-end gap-2">
+
+        <span className="text-[26px] font-semibold leading-none tracking-tight text-[#1d4ed8]">
+          8,412
+        </span>
+
+        <span className="pb-0.5 text-[11px] text-slate-400">/ day</span>
+
+        <span className="ml-auto pb-0.5 text-[11px] font-medium text-emerald-600">▲ 12.5%</span>
+
       </div>
 
-      <p
-        className="
-          text-3xl
-          font-semibold
-          text-slate-900
-          mt-4
-          tracking-tight
-        "
-      >
-        {value}
-      </p>
 
-      <p
-        className="
-          text-xs
-          text-slate-500
-          mt-2
-        "
-      >
-        {subtitle}
-      </p>
+      <div className="mt-3">
 
-    </div>
+        <div className="flex items-center justify-between text-[10px] text-slate-500">
+          <span>Daily target 9,800</span>
+          <span className="font-medium text-slate-700">86%</span>
+        </div>
+
+        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-gradient-to-r from-[#3b82f6] to-[#1d4ed8]" style={{ width: '86%' }} />
+        </div>
+
+      </div>
+
+
+      <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3">
+
+        <PulseStat value="184" label="Fabric SKUs" bars={[40, 70, 55, 85, 60]} tone="bg-[#1d4ed8]" />
+
+        <PulseStat value="96.4%" label="Cutting yield" bars={[60, 80, 72, 90, 96]} tone="bg-emerald-500" />
+
+        <PulseStat value="27" label="Open POs" bars={[30, 55, 45, 65, 50]} tone="bg-slate-400" />
+
+        <PulseStat value="94.8%" label="Line adherence" bars={[70, 62, 88, 80, 94]} tone="bg-[#3b82f6]" />
+
+      </div>
+
+    </FloatCard>
   )
 }
 
 
-// ============================================================
-// ALERT ROW
-// ============================================================
-
-function AlertRow({
-  title,
-  subtitle,
-  status,
-  statusType,
-}) {
-
-  const styles = {
-
-    success:
-      'bg-emerald-50 text-emerald-600',
-
-    warning:
-      'bg-amber-50 text-amber-600',
-
-    info:
-      'bg-indigo-50 text-indigo-500',
-
-  }
+function PulseStat({ value, label, bars, tone }) {
 
   return (
 
-    <div
-      className="
-        flex
-        items-center
-        justify-between
-        py-3
-        border-t
-        border-slate-100
-      "
-    >
+    <div className="flex items-end justify-between gap-2">
 
       <div>
 
-        <p className="text-sm text-slate-900">
-          {title}
+        <p className="text-base font-semibold leading-none tracking-tight text-slate-900">
+          {value}
         </p>
 
-        <p className="text-xs text-slate-400 mt-1">
-          {subtitle}
-        </p>
+        <p className="mt-1 text-[10px] text-slate-400">{label}</p>
 
       </div>
 
+      <div className="flex h-6 items-end gap-[3px]">
 
-      <span
-        className={`
-          px-3
-          py-1
-          rounded-full
-          text-xs
-          font-medium
-          ${styles[statusType]}
-        `}
-      >
-        {status}
-      </span>
+        {bars.map((bar, index) => (
+          <span
+            key={index}
+            className={`w-[3px] rounded-full ${tone} opacity-80`}
+            style={{ height: `${bar}%` }}
+          />
+        ))}
+
+      </div>
 
     </div>
   )
@@ -851,60 +438,76 @@ function AlertRow({
 
 
 // ============================================================
-// AGENT HEALTH
+// ACTIVITY FEED — alerts and agent health behind tabs
 // ============================================================
 
-function AgentHealth({
-  name,
-  status,
-  statusType,
-}) {
+function ActivityFeedCard({ tab, setTab, rows }) {
+
+  const tabs = [
+    { id: 'all', label: 'All' },
+    { id: 'alerts', label: 'Alerts' },
+    { id: 'agents', label: 'Agents' },
+  ]
+
+  return (
+
+    <FloatCard className="flex min-h-0 flex-1 flex-col p-4">
+
+      <CardHeader title="Live activity" />
+
+      <div className="mt-3 flex items-center gap-1.5">
+
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setTab(item.id)}
+            className={`rounded-lg px-2.5 py-1 text-[11px] transition ${
+              tab === item.id
+                ? 'bg-[#1d4ed8] text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+
+      </div>
+
+
+      <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+
+        {rows.map((row) => (
+          <FeedRow key={`${row.title}-${row.status}`} {...row} />
+        ))}
+
+      </div>
+
+    </FloatCard>
+  )
+}
+
+
+function FeedRow({ title, subtitle, status, statusType }) {
 
   const styles = {
-
-    success:
-      'bg-emerald-50 text-emerald-600',
-
-    warning:
-      'bg-amber-50 text-amber-600',
-
-    info:
-      'bg-indigo-50 text-indigo-500',
-
+    success: 'bg-emerald-50 text-emerald-600',
+    warning: 'bg-amber-50 text-amber-600',
+    info: 'bg-indigo-50 text-indigo-500',
   }
 
   return (
 
-    <div
-      className="
-        flex
-        items-center
-        justify-between
-        py-3
-        border-t
-        border-slate-100
-      "
-    >
+    <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-2.5 last:border-b-0">
 
-      <span
-        className="
-          text-sm
-          text-slate-900
-        "
-      >
-        {name}
-      </span>
+      <div className="min-w-0">
 
-      <span
-        className={`
-          px-3
-          py-1
-          rounded-full
-          text-xs
-          font-medium
-          ${styles[statusType]}
-        `}
-      >
+        <p className="truncate text-[12px] text-slate-900">{title}</p>
+
+        <p className="mt-0.5 truncate text-[10px] text-slate-400">{subtitle}</p>
+
+      </div>
+
+      <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[statusType]}`}>
         {status}
       </span>
 
@@ -912,16 +515,237 @@ function AgentHealth({
   )
 }
 
-function LinePerformance({ label, value, color }) {
+
+// ============================================================
+// REORDER QUEUE
+// ============================================================
+
+function ReorderQueueCard({ setActivePage }) {
+
+  const tones = {
+    amber: 'bg-amber-50 text-amber-700',
+    sky: 'bg-sky-50 text-sky-700',
+    emerald: 'bg-emerald-50 text-emerald-700',
+  }
+
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between text-xs text-slate-600">
-        <span>{label}</span>
-        <span>{value}%</span>
+
+    <FloatCard className="p-4">
+
+      <CardHeader title="Reorder queue" />
+
+      <div className="mt-2 grid grid-cols-1 gap-x-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+
+        <div>
+
+        {REORDERS.map((row) => (
+
+          <div key={row.material} className="flex items-center justify-between gap-3 border-b border-slate-100 py-2.5">
+
+            <div className="min-w-0">
+
+              <p className="truncate text-[12px] text-slate-900">{row.material}</p>
+
+              <p className="mt-0.5 text-[10px] text-slate-400">{row.vendor} · ETA {row.eta}</p>
+
+            </div>
+
+            <div className="flex flex-shrink-0 items-center gap-2">
+
+              <span className="text-[11px] text-slate-700">{row.qty}</span>
+
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${tones[row.tone]}`}>
+                {row.status}
+              </span>
+
+            </div>
+
+          </div>
+        ))}
+
+        </div>
+
+
+        {/* Summary column — sits beside the queue on wide screens */}
+
+        <div className="mt-3 flex flex-col border-t border-slate-100 pt-3 lg:mt-0 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-1">
+
+          <div className="space-y-2 text-[11px]">
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Open purchase orders</span>
+              <span className="font-medium text-slate-900">27</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Plan vs actual</span>
+              <span className="font-medium text-slate-900">98.2%</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Efficiency</span>
+              <span className="font-medium text-emerald-600">+4.6%</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Fabric SKUs tracked</span>
+              <span className="font-medium text-slate-900">184</span>
+            </div>
+
+          </div>
+
+
+          <button
+            onClick={() => setActivePage('supplier')}
+            className="mt-auto w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-slate-100"
+          >
+            View all
+          </button>
+
+        </div>
+
       </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
+
+    </FloatCard>
+  )
+}
+
+
+// ============================================================
+// OUTPUT TREND
+// ============================================================
+
+function OutputTrendCard() {
+
+  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+
+  return (
+
+    <FloatCard className="p-4">
+
+      <CardHeader title="Weekly output" />
+
+      <div className="mt-2 flex items-end justify-between">
+
+        <div>
+
+          <p className="text-[22px] font-semibold leading-none tracking-tight text-slate-900">
+            46.2k
+          </p>
+
+          <p className="mt-1 text-[10px] text-slate-400">Units this week</p>
+
+        </div>
+
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+          ▲ 12.5%
+        </span>
+
       </div>
+
+
+      <div className="mt-4 flex h-28 items-end gap-2">
+
+        {OUTPUT_TREND.map((value, index) => (
+
+          <div key={index} className="flex h-full flex-1 flex-col items-center justify-end gap-1.5">
+
+            <div
+              className="w-full rounded-t-md bg-gradient-to-t from-[#1d4ed8] via-[#2563eb] to-[#60a5fa]"
+              style={{ height: `${value}%` }}
+            />
+
+            <span className="text-[9px] text-slate-400">{days[index]}</span>
+
+          </div>
+        ))}
+
+      </div>
+
+    </FloatCard>
+  )
+}
+
+
+// ============================================================
+// LINE SPLIT — how the shift hours were spent
+// ============================================================
+
+function LineSplitCard() {
+
+  const split = [
+    { label: 'Running', value: '84%', tone: 'text-[#1d4ed8]' },
+    { label: 'Changeover', value: '9%', tone: 'text-[#3b82f6]' },
+    { label: 'Idle', value: '7%', tone: 'text-slate-400' },
+  ]
+
+  const hourly = [42, 58, 66, 74, 61, 80, 88, 70, 64, 52, 76, 84]
+
+  return (
+
+    <FloatCard className="p-4">
+
+      <CardHeader title="Shift statistics" />
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+
+        {split.map((item) => (
+
+          <div key={item.label}>
+
+            <p className={`text-lg font-semibold leading-none tracking-tight ${item.tone}`}>
+              {item.value}
+            </p>
+
+            <p className="mt-1 text-[10px] text-slate-400">{item.label}</p>
+
+          </div>
+        ))}
+
+      </div>
+
+
+      <div className="mt-4 flex h-16 items-end gap-[5px]">
+
+        {hourly.map((value, index) => (
+          <span
+            key={index}
+            className="flex-1 rounded-t-[3px] bg-[#1d4ed8]"
+            style={{ height: `${value}%`, opacity: 0.35 + (value / 100) * 0.6 }}
+          />
+        ))}
+
+      </div>
+
+
+      <div className="mt-1.5 flex justify-between text-[9px] text-slate-400">
+        <span>06:00</span>
+        <span>12:00</span>
+        <span>18:00</span>
+      </div>
+
+    </FloatCard>
+  )
+}
+
+
+// ============================================================
+// CARD HEADER — title plus the small panel controls
+// ============================================================
+
+function CardHeader({ title }) {
+
+  return (
+
+    <div className="flex items-center justify-between">
+
+      <h2 className="text-[13px] font-semibold text-slate-900">{title}</h2>
+
+      <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+        <span>▤</span>
+        <span>⤢</span>
+      </div>
+
     </div>
   )
 }
@@ -1024,12 +848,13 @@ function App() {
       className="
         h-screen
         flex
-        bg-[#f5f1ea]
+        flex-col
+        bg-[#f1f5f9]
         overflow-hidden
       "
     >
 
-      <Sidebar
+      <TopNav
         activePage={activePage}
         setActivePage={setActivePage}
       />
@@ -1039,7 +864,6 @@ function App() {
         className="
           flex-1
           min-w-0
-          h-screen
           overflow-y-auto
         "
       >

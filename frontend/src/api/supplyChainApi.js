@@ -20,7 +20,7 @@ export const supplyChainApi = {
     }
   },
 
-  // Start pipeline via Natural Language (Agentic)
+  // Start pipeline via Natural Language (Agentic) - legacy single-shot
   chatPipeline: async (data) => {
     try {
       const response = await fetch(`${API_BASE_URL}/chat`, {
@@ -38,6 +38,45 @@ export const supplyChainApi = {
       throw error
     }
   },
+
+  // Multi-turn requirements gathering
+  gatherRequirements: async (conversationHistory) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/gather`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_history: conversationHistory }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to gather requirements')
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('Error gathering requirements:', error)
+      throw error
+    }
+  },
+
+  // Find matching suppliers from real DB
+  findSuppliers: async (requirements) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/find-suppliers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requirements),
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Failed to find suppliers')
+      }
+      return await response.json()
+    } catch (error) {
+      console.error('Error finding suppliers:', error)
+      throw error
+    }
+  },
+
 
   // Approve a pending PO
   approvePo: async (runId, approvedBy) => {
@@ -193,4 +232,19 @@ export const supplyChainApi = {
     if (!response.ok) throw new Error('Failed to delete shipment')
     return response.json()
   },
+
+  // Re-send PO email to supplier (for approved POs in PurchaseOrdersTab)
+  resendPoEmail: async (poId, notes = '') => {
+    const response = await fetch(`${API_BASE_URL}/resend-po-email/${poId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      throw new Error(err.detail || 'Failed to resend PO email')
+    }
+    return response.json()
+  },
 }
+

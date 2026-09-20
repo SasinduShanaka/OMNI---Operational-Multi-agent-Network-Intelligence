@@ -29,7 +29,13 @@ MCP_DIR  = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
 
 
-def _draft_po_in_sqlite(supplier_id: int, requirement_id: int, qty: float, total_value: float) -> dict:
+def _draft_po_in_sqlite(
+    supplier_id: int,
+    requirement_id: int,
+    qty: float,
+    total_value: float,
+    po_details: dict | None = None,
+) -> dict:
     from datetime import date, timedelta
 
     sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
@@ -41,13 +47,14 @@ def _draft_po_in_sqlite(supplier_id: int, requirement_id: int, qty: float, total
     conn = get_erp_db_connection()
     try:
         expected_delivery = (date.today() + timedelta(days=14)).isoformat()
+        po_details_json = json.dumps(po_details or {})
         cur = conn.execute(
             """
             INSERT INTO purchase_orders
-                (supplier_id, requirement_id, qty, total_value, order_date, expected_delivery_date, status, approved_by)
-            VALUES (?, ?, ?, ?, ?, ?, 'draft', NULL)
+                (supplier_id, requirement_id, qty, total_value, order_date, expected_delivery_date, status, approved_by, po_details)
+            VALUES (?, ?, ?, ?, ?, ?, 'draft', NULL, ?)
             """,
-            (supplier_id, requirement_id, qty, total_value, date.today().isoformat(), expected_delivery),
+            (supplier_id, requirement_id, qty, total_value, date.today().isoformat(), expected_delivery, po_details_json),
         )
         conn.commit()
         return {
@@ -119,7 +126,8 @@ async def run_purchasing_agent(
     total_value: float,
     draft_only: bool = False,
     auto_approve: bool = False,
-    approved_by: str = "Human Manager"
+    approved_by: str = "Human Manager",
+    po_details: dict | None = None,
 ) -> dict | None:
     """
     Draft a Purchase Order using an LLM and wait for human approval.
@@ -145,7 +153,7 @@ async def run_purchasing_agent(
                 po_data = po_data["result"]
         except Exception as error:
             print(f"  [Agent 2] MCP unavailable ({error}); drafting PO in SQLite directly.")
-            po_data = _draft_po_in_sqlite(supplier_id, requirement_id, qty, total_value)
+            po_data = _draft_po_in_sqlite(supplier_id, requirement_id, qty, total_value, po_details)
     else:
         llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
         llm_with_tools = llm.bind_tools([draft_po_tool])

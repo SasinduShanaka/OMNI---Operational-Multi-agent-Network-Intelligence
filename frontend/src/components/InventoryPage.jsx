@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { SceneStage } from './FactoryScene'
+
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
 function InventoryPage() {
@@ -91,6 +93,7 @@ function InventoryPage() {
 
   if (loading) {
     return (
+      <SceneStage scene="fabric">
       <div className="p-8">
 
         <h1 className="text-2xl font-semibold text-slate-900">
@@ -106,6 +109,7 @@ function InventoryPage() {
         </div>
 
       </div>
+      </SceneStage>
     )
   }
 
@@ -114,55 +118,56 @@ function InventoryPage() {
   // --------------------------------------------------
 
   return (
-    <div className="p-8">
+    <SceneStage scene="fabric">
+    <div className="mx-auto w-full max-w-[1280px] px-5 pb-8">
 
       {/* ================================================ */}
-      {/* HEADER */}
+      {/* HEADER — over the fabric store scene */}
       {/* ================================================ */}
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 pt-5">
 
-        <div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3] mb-3">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-            Inventory intelligence
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+              Inventory intelligence
+            </div>
+
+            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
+              Fabric stock control
+            </h1>
+
+            <p className="text-sm text-[#64748b] mt-2">
+              Real-time stock levels, thresholds and ABC classification across the supply chain
+            </p>
+
           </div>
 
-          <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
-            Fabric stock control
-          </h1>
-
-          <p className="text-sm text-[#86612b] mt-2">
-            Real-time stock levels, thresholds and ABC classification across the supply chain
-          </p>
-
-        </div>
-
-        <button
-          className="
-            px-4
-            py-2.5
-            rounded-xl
-            bg-[#1f3a36]
-            hover:bg-[#274a44]
-            text-white
-            text-sm
-            font-medium
-            transition
-            shadow-sm
-          "
-        >
-          + Manual reorder
-        </button>
+          <button
+            className="
+              px-4
+              py-2.5
+              rounded-xl
+              bg-[#1d4ed8]
+              hover:bg-[#1e40af]
+              text-white
+              text-sm
+              font-medium
+              transition
+              shadow-[0_10px_24px_rgba(29,78,216,0.35)]
+            "
+          >
+            + Manual reorder
+          </button>
 
       </div>
 
-      <div className="mb-6 rounded-2xl border border-[#e7dcc7] bg-gradient-to-r from-[#fff9f0] via-[#f9f2e8] to-[#eef3f2] p-5 shadow-[0_10px_25px_rgba(31,58,54,0.06)]">
+      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Stock health</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{fillRate}% fill rate</h2>
+            <h2 className="mt-1.5 text-lg font-semibold text-slate-900">{fillRate}% fill rate</h2>
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-white px-3 py-2 border border-slate-200">
@@ -215,13 +220,13 @@ function InventoryPage() {
 
         {/* Total SKUs */}
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
-          <div className="inline-flex rounded-lg border border-[#f4d9a8] bg-[#fff7ea] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#a76913]">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Total SKUs
-          </div>
+          </p>
 
-          <p className="text-3xl font-semibold text-slate-900 mt-4 tracking-tight">
+          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
             {totalSKUs}
           </p>
 
@@ -230,13 +235,13 @@ function InventoryPage() {
 
         {/* Stockout */}
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
-          <div className="inline-flex rounded-lg border border-[#f3c3c3] bg-[#fff1f1] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#b63f3f]">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Stockouts (30d)
-          </div>
+          </p>
 
-          <p className="text-3xl font-semibold text-slate-900 mt-4 tracking-tight">
+          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
             {stockoutEvents}
           </p>
 
@@ -245,13 +250,13 @@ function InventoryPage() {
 
         {/* Fill rate */}
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
-          <div className="inline-flex rounded-lg border border-[#bfe5cf] bg-[#edfaf4] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#1d6a4a]">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Avg. fill rate
-          </div>
+          </p>
 
-          <p className="text-3xl font-semibold text-slate-900 mt-4 tracking-tight">
+          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
             {fillRate}%
           </p>
 
@@ -260,17 +265,17 @@ function InventoryPage() {
 
         {/* Carrying cost */}
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
-          <div className="inline-flex rounded-lg border border-[#dfe3ea] bg-[#f3f4f6] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#425466]">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Carrying cost
-          </div>
+          </p>
 
-          <p className="text-3xl font-semibold text-slate-900 mt-4 tracking-tight">
+          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
             —
           </p>
 
-          <p className="text-xs text-slate-500 mt-2">
+          <p className="mt-1 text-[11px] text-slate-400">
             Not available yet
           </p>
 
@@ -287,16 +292,18 @@ function InventoryPage() {
 
         <div className="
           mb-4
-          px-4
-          py-3
-          bg-red-50
+          inline-flex
+          items-center
+          gap-2
+          rounded-lg
           border
           border-red-100
-          rounded-xl
-          text-sm
+          bg-red-50
+          px-3
+          py-1.5
         ">
 
-          <span className="text-red-600 font-medium">
+          <span className="text-[12px] font-medium text-red-600">
             ▼ {lowStockItems.length} item
             {lowStockItems.length !== 1 ? 's' : ''} below reorder point
           </span>
@@ -319,11 +326,15 @@ function InventoryPage() {
         shadow-[0_10px_25px_rgba(15,23,42,0.03)]
       ">
 
-        <div className="px-5 pt-5 pb-3">
+        <div className="flex items-center justify-between px-4 pb-2 pt-3">
 
-          <h2 className="text-[10px] uppercase tracking-[0.2em] font-medium text-slate-500">
+          <h2 className="text-[13px] font-semibold text-slate-900">
             Reorder watchlist
           </h2>
+
+          <span className="text-[11px] text-slate-400">
+            {inventory.length} items
+          </span>
 
         </div>
 
@@ -333,13 +344,18 @@ function InventoryPage() {
         <div className="
           grid
           grid-cols-7
-          px-5
-          py-3
-          border-t
-          border-b
-          border-slate-200
-          text-xs
-          text-slate-400
+          items-center
+          gap-3
+          border-y
+          border-slate-200/70
+          bg-slate-50/70
+          px-4
+          py-1.5
+          text-[10px]
+          font-medium
+          uppercase
+          tracking-[0.12em]
+          text-slate-500
         ">
 
           <span>SKU</span>
@@ -373,13 +389,14 @@ function InventoryPage() {
                 grid
                 grid-cols-7
                 items-center
-                px-5
-                py-4
+                gap-3
                 border-b
-                border-slate-200
+                border-slate-100
+                px-4
+                py-2
+                text-[13px]
                 last:border-b-0
-                text-sm
-                hover:bg-slate-50
+                hover:bg-slate-50/70
                 transition
               "
             >
@@ -404,14 +421,15 @@ function InventoryPage() {
 
                 <span className="
                   inline-flex
+                  h-5
+                  w-5
                   items-center
                   justify-center
-                  w-7
-                  h-7
-                  rounded-full
+                  rounded-md
                   bg-slate-100
+                  text-[10px]
+                  font-medium
                   text-slate-600
-                  text-xs
                 ">
                   {item.classification || 'B'}
                 </span>
@@ -421,14 +439,14 @@ function InventoryPage() {
 
               {/* On hand */}
 
-              <div className="text-slate-900">
+              <div className="tabular-nums text-slate-900">
                 {item.current_stock?.toLocaleString()}
               </div>
 
 
               {/* Reorder point */}
 
-              <div className="text-slate-900">
+              <div className="tabular-nums text-slate-500">
                 {item.reorder_level?.toLocaleString()}
               </div>
 
@@ -440,10 +458,10 @@ function InventoryPage() {
                 <span
                   className={`
                     inline-flex
-                    px-3
-                    py-1
                     rounded-full
-                    text-xs
+                    px-2
+                    py-0.5
+                    text-[10px]
                     font-medium
                     ${status.className}
                   `}
@@ -500,6 +518,7 @@ function InventoryPage() {
       </div>
 
     </div>
+    </SceneStage>
   )
 }
 

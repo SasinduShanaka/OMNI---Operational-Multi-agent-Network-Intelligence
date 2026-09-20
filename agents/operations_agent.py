@@ -1474,51 +1474,15 @@ def _execute_specialist_request(user_request: str):
     # ========================================================
 
     if intent == "procurement":
-        import asyncio
-        from backend.supply_chain.supervisor import process_chat_message
-        from backend.supply_chain.orchestrator import start_pipeline
-
-        decision = process_chat_message(user_request)
-
-        if decision.scenario == "unrelated":
-            return {
-                "agent": "Operations Agent",
-                "task": "Procurement Request",
-                "delegated_to": "Supply Chain Agent",
-                "llm_used": True,
-                "intent": "unknown",
-                "status": "success",
-                "workflow": [
-                    "Operations Agent"
-                ],
-                "answer": "I can help you source and procure materials. Try: 'I need 400 meters of organic cotton'."
-            }
-
-        result = asyncio.run(start_pipeline(
-            material_type=decision.material_type,
-            requirement_id=decision.requirement_id,
-            qty=float(decision.qty),
-            total_value=decision.total_value,
-            compliance_keywords=["Organic Cotton", "Child-Labor Free"],
-            destination="Colombo, LK",
-            targeted_supplier=decision.supplier_name,
-        ))
-
         return {
             "agent": "Operations Agent",
             "task": "Procurement Request",
             "delegated_to": "Supply Chain Agent",
             "llm_used": True,
-            "intent": intent,
-            "status": "success",
-            "workflow": [
-                "Operations Agent",
-                "Supply Chain Agent",
-                "Sourcing Agent",
-                "Purchasing Agent"
-            ],
-            "answer": "I found a compliant supplier and drafted a Purchase Order. Please review and authorize below.",
-            "data": result,
+            "intent": "procurement",
+            "status": "init_session",
+            "workflow": ["Operations Agent", "Supply Chain Agent"],
+            "answer": "Starting procurement gathering session.",
             "user_request": user_request
         }
 

@@ -30,6 +30,23 @@ def _run_schema(conn, schema_filename):
         conn.executescript(schema_file.read())
     conn.commit()
 
+def migrate_erp_schema():
+    conn = get_erp_db_connection()
+    try:
+        for table, column, col_def in [
+            ("suppliers", "email", "TEXT"),
+            ("suppliers", "price_per_unit", "REAL"),
+            ("purchase_orders", "po_details", "TEXT"),
+        ]:
+            if _table_exists(conn, table):
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+                    conn.commit()
+                except sqlite3.OperationalError:
+                    pass
+    finally:
+        conn.close()
+
 def ensure_erp_db_ready():
     conn = get_erp_db_connection()
     try:
@@ -37,12 +54,15 @@ def ensure_erp_db_ready():
             _run_schema(conn, "schema_erp.sql")
             conn.close()
 
+            migrate_erp_schema()
             from seed_erp import seed_erp
             seed_erp()
             return
 
         supplier_count = conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0]
         conn.close()
+
+        migrate_erp_schema()
 
         if supplier_count == 0 and os.path.getsize(ERP_DB_PATH) == 0:
             from seed_erp import seed_erp

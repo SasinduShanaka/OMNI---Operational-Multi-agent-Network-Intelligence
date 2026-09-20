@@ -47,7 +47,7 @@ function TrackingPanel({ shipment, onClose }) {
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       {/* Panel */}
       <div className="w-[420px] h-full bg-white shadow-2xl flex flex-col animate-fade-in-up overflow-y-auto">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-[#1a2430] text-white">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-[#0f172a] text-white">
           <div>
             <h3 className="font-bold text-lg">Live Tracking</h3>
             <p className="text-sm text-white/70">Shipment #{shipment.shipment_id}</p>
@@ -87,7 +87,7 @@ function TrackingPanel({ shipment, onClose }) {
           {/* AI Agent Summary */}
           <div className="border-t border-gray-100 pt-5">
             <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-gradient-to-br from-[#d9a441] to-[#7d5d2f] flex items-center justify-center text-white text-xs font-bold">O</span>
+              <span className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex items-center justify-center text-white text-xs font-bold">O</span>
               Omni Tracking Summary
             </h4>
             {loading && (
@@ -101,7 +101,7 @@ function TrackingPanel({ shipment, onClose }) {
             )}
             {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded-lg border border-red-200">Could not reach tracking agent: {error}</div>}
             {trackData && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {trackData.weather_alert && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
                     <div className="flex items-center gap-2 font-bold mb-1">
@@ -114,7 +114,7 @@ function TrackingPanel({ shipment, onClose }) {
                     </div>
                   </div>
                 )}
-                <div className="bg-[#f5f1ea] border border-amber-100 rounded-xl p-4 text-sm text-gray-700 italic leading-relaxed">
+                <div className="bg-[#f1f5f9] border border-amber-100 rounded-xl p-4 text-sm text-gray-700 italic leading-relaxed">
                   "{trackData.summary}"
                 </div>
               </div>
@@ -205,7 +205,7 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">ID</th>
@@ -255,7 +255,7 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
                     {s.status !== 'delivered' ? (
                       <button
                         onClick={() => setTrackingShipment(s)}
-                        className="text-xs font-semibold text-[#1a2430] border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-[#1a2430] hover:text-white transition-colors"
+                        className="text-xs font-semibold text-[#0f172a] border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-[#0f172a] hover:text-white transition-colors"
                       >
                         Track Live
                       </button>
@@ -263,7 +263,7 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
                       <button
                         onClick={() => handleDelete(s.shipment_id)}
                         disabled={actionLoading === s.shipment_id}
-                        className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
+                        className="bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-red-100 shadow-sm disabled:opacity-50"
                       >
                         Delete
                       </button>
