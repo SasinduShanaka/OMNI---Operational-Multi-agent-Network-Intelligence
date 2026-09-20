@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { SceneStage } from './FactoryScene'
 
@@ -8,6 +8,10 @@ function InventoryPage() {
   const [inventory, setInventory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sortBy, setSortBy] = useState('risk')
+  const [showOnlyLowStock, setShowOnlyLowStock] = useState(false)
 
   // --------------------------------------------------
   // Get inventory from backend
@@ -61,6 +65,103 @@ function InventoryPage() {
     totalSKUs > 0
       ? ((healthyItems / totalSKUs) * 100).toFixed(1)
       : '0.0'
+
+  const totalShortage = lowStockItems.reduce(
+    (sum, item) => sum + Number(item.shortage || 0),
+    0
+  )
+
+  const uniqueUnits = Array.from(
+    new Set(inventory.map((item) => item.unit).filter(Boolean))
+  )
+
+  const filteredInventory = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+
+    return inventory
+      .filter((item) => {
+        const matchesSearch =
+          !query ||
+          item.material_name?.toLowerCase().includes(query) ||
+          item.material_code?.toLowerCase().includes(query)
+
+        const matchesStatus =
+          statusFilter === 'ALL' || item.status === statusFilter
+
+        const matchesLowStock =
+          !showOnlyLowStock || item.status === 'LOW_STOCK' || Number(item.current_stock) === 0
+
+        return matchesSearch && matchesStatus && matchesLowStock
+      })
+      .sort((a, b) => {
+        if (sortBy === 'name') {
+          return String(a.material_name).localeCompare(String(b.material_name))
+        }
+
+        if (sortBy === 'stock') {
+          return Number(a.current_stock || 0) - Number(b.current_stock || 0)
+        }
+
+        if (sortBy === 'shortage') {
+          return Number(b.shortage || 0) - Number(a.shortage || 0)
+        }
+
+        const riskRank = {
+          OUT_OF_STOCK: 0,
+          LOW_STOCK: 1,
+          STOCK_OK: 2,
+        }
+
+        return (riskRank[a.status] ?? 3) - (riskRank[b.status] ?? 3)
+      })
+  }, [inventory, searchTerm, statusFilter, sortBy, showOnlyLowStock])
+
+  function resetFilters() {
+    setSearchTerm('')
+    setStatusFilter('ALL')
+    setSortBy('risk')
+    setShowOnlyLowStock(false)
+  }
+
+  function exportCsv() {
+    const headers = [
+      'Material Code',
+      'Material Name',
+      'Status',
+      'Current Stock',
+      'Reorder Level',
+      'Shortage',
+      'Unit',
+      'Recommendation',
+    ]
+
+    const rows = filteredInventory.map((item) => [
+      item.material_code,
+      item.material_name,
+      item.status,
+      item.current_stock,
+      item.reorder_level,
+      item.shortage,
+      item.unit,
+      item.recommendation,
+    ])
+
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`)
+          .join(',')
+      )
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `inventory-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   // --------------------------------------------------
   // Status helper
@@ -150,6 +251,7 @@ function InventoryPage() {
           </div>
 
           <button
+            onClick={() => setShowOnlyLowStock(true)}
             className="
               px-4
               py-2.5
@@ -163,7 +265,7 @@ function InventoryPage() {
               shadow-[0_10px_24px_rgba(29,78,216,0.35)]
             "
           >
-            + Manual reorder
+            View reorder needs
           </button>
 
       </div>
@@ -182,6 +284,12 @@ function InventoryPage() {
             <div className="rounded-xl bg-emerald-50 px-3 py-2 border border-emerald-100">
               <div className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">Healthy</div>
               <div className="mt-1 text-lg font-semibold text-emerald-700">{healthyItems}</div>
+            </div>
+            <div className="rounded-xl bg-amber-50 px-3 py-2 border border-amber-100">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-amber-700">Shortage</div>
+              <div className="mt-1 text-lg font-semibold text-amber-700">
+                {totalShortage.toLocaleString()}
+              </div>
             </div>
           </div>
         </div>
@@ -319,6 +427,77 @@ function InventoryPage() {
 
 
       {/* ================================================ */}
+      {/* CONTROLS */}
+      {/* ================================================ */}
+
+      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto_auto]">
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search material or code..."
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+          />
+
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="ALL">All statuses</option>
+            <option value="LOW_STOCK">Low stock</option>
+            <option value="OUT_OF_STOCK">Out of stock</option>
+            <option value="STOCK_OK">Healthy</option>
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="risk">Sort by risk</option>
+            <option value="shortage">Sort by shortage</option>
+            <option value="stock">Sort by stock</option>
+            <option value="name">Sort by name</option>
+          </select>
+
+          <button
+            onClick={() => setShowOnlyLowStock((current) => !current)}
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+              showOnlyLowStock
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            Reorder only
+          </button>
+
+          <button
+            onClick={exportCsv}
+            disabled={filteredInventory.length === 0}
+            className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>
+            Showing {filteredInventory.length} of {inventory.length} materials
+            {uniqueUnits.length > 0 ? ` across ${uniqueUnits.join(', ')}` : ''}
+          </span>
+          <button
+            onClick={resetFilters}
+            className="font-medium text-[#1d4ed8] transition hover:text-[#1e40af]"
+          >
+            Reset filters
+          </button>
+        </div>
+      </div>
+
+
+      {/* ================================================ */}
       {/* REORDER WATCHLIST */}
       {/* ================================================ */}
 
@@ -338,7 +517,7 @@ function InventoryPage() {
           </h2>
 
           <span className="text-[11px] text-slate-400">
-            {inventory.length} items
+            {filteredInventory.length} items
           </span>
 
         </div>
@@ -348,7 +527,7 @@ function InventoryPage() {
 
         <div className="
           grid
-          grid-cols-7
+          grid-cols-8
           items-center
           gap-3
           border-y
@@ -375,6 +554,8 @@ function InventoryPage() {
 
           <span>REORDER PT.</span>
 
+          <span>SHORTAGE</span>
+
           <span>STATUS</span>
 
         </div>
@@ -382,7 +563,7 @@ function InventoryPage() {
 
         {/* Inventory rows */}
 
-        {inventory.map((item) => {
+        {filteredInventory.map((item) => {
 
           const status = getStatus(item)
 
@@ -392,7 +573,7 @@ function InventoryPage() {
               key={item.material_code}
               className="
                 grid
-                grid-cols-7
+                grid-cols-8
                 items-center
                 gap-3
                 border-b
@@ -445,14 +626,23 @@ function InventoryPage() {
               {/* On hand */}
 
               <div className="tabular-nums text-slate-900">
-                {item.current_stock?.toLocaleString()}
+                {item.current_stock?.toLocaleString()} {item.unit}
               </div>
 
 
               {/* Reorder point */}
 
               <div className="tabular-nums text-slate-500">
-                {item.reorder_level?.toLocaleString()}
+                {item.reorder_level?.toLocaleString()} {item.unit}
+              </div>
+
+
+              {/* Shortage */}
+
+              <div className={`tabular-nums ${item.shortage > 0 ? 'font-medium text-red-600' : 'text-slate-400'}`}>
+                {item.shortage > 0
+                  ? `${item.shortage?.toLocaleString()} ${item.unit}`
+                  : '-'}
               </div>
 
 
@@ -485,10 +675,12 @@ function InventoryPage() {
 
         {/* Empty inventory */}
 
-        {inventory.length === 0 && !error && (
+        {filteredInventory.length === 0 && !error && (
 
           <div className="p-10 text-center text-slate-400">
-            No inventory items found.
+            {inventory.length === 0
+              ? 'No inventory items found.'
+              : 'No materials match the current filters.'}
           </div>
 
         )}
