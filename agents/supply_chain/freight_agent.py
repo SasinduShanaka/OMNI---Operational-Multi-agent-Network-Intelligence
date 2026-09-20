@@ -164,16 +164,28 @@ You are a Freight Booking Agent.
             
             shipment_id = booking["shipment_id"]
             mode = book_call['args']['mode']
-            
+            chosen_carrier_id = book_call['args']['carrier_id']
+
+            # Look up the real carrier name from the carriers list returned earlier
+            try:
+                carriers_data = json.loads(tool_result)
+                carrier_name = next(
+                    (c["name"] for c in carriers_data if c.get("carrier_id") == chosen_carrier_id),
+                    "Unknown Carrier"
+                )
+            except Exception:
+                carrier_name = "Unknown Carrier"
+
             print(f"\n  [Agent 3] Shipment #{shipment_id} booked.")
             print(f"  Mode    : {mode}")
+            print(f"  Carrier : {carrier_name}")
             print(f"  Route   : {origin} -> {destination}")
             print(f"  ETA     : {eta}")
 
             return {
                 "shipment_id":   shipment_id,
-                "carrier_name":  "LLM Selected Carrier",
-                "carrier_id":    book_call['args']['carrier_id'],
+                "carrier_name":  carrier_name,
+                "carrier_id":    chosen_carrier_id,
                 "mode":          mode,
                 "origin":        origin,
                 "destination":   destination,
