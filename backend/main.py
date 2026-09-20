@@ -110,6 +110,70 @@ class FeasibilityRequest(BaseModel):
 # ============================================================
 
 procurement_sessions = {}
+operations_contexts = {}
+
+
+def is_low_stock_supply_chain_request(message: str) -> bool:
+    text = message.lower()
+    low_stock_reference = any(phrase in text for phrase in (
+        "low stock",
+        "low inventory",
+        "these low stock",
+        "those low stock",
+        "reorder level",
+        "below reorder",
+    ))
+    supply_chain_action = any(word in text for word in (
+        "order",
+        "buy",
+        "procure",
+        "source",
+        "supplier",
+        "suppliers",
+        "purchase",
+        "replenish",
+    ))
+    return low_stock_reference and supply_chain_action
+
+
+def is_contextual_low_stock_order(message: str, session_id: str | None) -> bool:
+    if not session_id or session_id not in operations_contexts:
+        return False
+
+    previous = operations_contexts[session_id]
+    if previous.get("intent") != "low_stock_procurement":
+        return False
+
+    text = message.lower()
+    contextual_reference = any(word in text for word in (
+        "these",
+        "those",
+        "them",
+        "above",
+        "suggested",
+        "all",
+    ))
+    order_action = any(word in text for word in (
+        "order",
+        "buy",
+        "procure",
+        "purchase",
+        "replenish",
+    ))
+    return contextual_reference and order_action
+
+
+def remember_operations_context(session_id: str | None, result: dict):
+    if not session_id:
+        return
+
+    if result.get("intent") == "low_stock_procurement" and result.get("status") == "success":
+        operations_contexts[session_id] = {
+            "intent": result.get("intent"),
+            "results": result.get("results", []),
+            "procurement": result.get("procurement", []),
+        }
+
 
 def handle_procurement_turn(session_id: str, request: AskRequest):
     from backend.supply_chain.supervisor import gather_requirements
@@ -287,11 +351,24 @@ def ask_agent(request: AskRequest):
     try:
         # Check active session
         session_id = request.session_id
+        from agents.operations_agent import process_request
+
+        if is_contextual_low_stock_order(request.message, session_id):
+            if session_id and session_id in procurement_sessions:
+                del procurement_sessions[session_id]
+
+            result = process_request("order these low stock materials")
+            remember_operations_context(session_id, result)
+            return result
+
+        if session_id and session_id in procurement_sessions and is_low_stock_supply_chain_request(request.message):
+            del procurement_sessions[session_id]
+
         if session_id and session_id in procurement_sessions:
             return handle_procurement_turn(session_id, request)
 
-        from agents.operations_agent import process_request
         result = process_request(request.message)
+        remember_operations_context(session_id, result)
 
         if result.get("status") == "init_session":
             # Start new session

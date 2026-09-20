@@ -97,70 +97,37 @@ async def node_draft_po(state: PipelineState) -> PipelineState:
     print("\n[Orchestrator] -> Node: Draft PO")
     start_time = time.time()
     try:
-        from fastmcp import Client
-        MCP_DIR = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
-        ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
+        po = await run_purchasing_agent(
+            supplier_id=state["supplier"]["supplier_id"],
+            supplier_name=state["supplier"]["supplier_name"],
+            requirement_id=state["requirement_id"],
+            qty=state["qty"],
+            total_value=state["total_value"],
+            draft_only=True,
+            auto_approve=False,
+            po_details=state.get("po_details"),
+        )
 
-        import json
-        async with Client(ERP_SERVER) as erp:
-            draft_result = await erp.call_tool(
-                "draft_po",
-                {
-                    "supplier_id":    state["supplier"]["supplier_id"],
-                    "requirement_id": state["requirement_id"],
-                    "qty":            state["qty"],
-                    "total_value":    state["total_value"],
-                }
-            )
+        if not po:
+            return {**state, "status": "failed", "error": "PO draft failed.", "po": None}
 
-        # Parse CallToolResult
-        result_text = draft_result.content[0].text if hasattr(draft_result, "content") else str(draft_result)
-        try:
-            draft_dict = json.loads(result_text)
-        except Exception:
-            draft_dict = draft_result if isinstance(draft_result, dict) else {"error": f"Failed to parse result: {result_text}"}
-
-        if "error" in draft_dict:
-            return {**state, "status": "failed", "error": draft_dict["error"], "po": None}
-
-        # Structure the po dict to match what run_purchasing_agent used to return
         po = {
-            "po_id": draft_dict.get("po_id"),
-            "supplier_id": state["supplier"]["supplier_id"],
+            **po,
             "supplier_name": state["supplier"]["supplier_name"],
             "requirement_id": state["requirement_id"],
-            "qty": state["qty"],
             "total_value": state["total_value"],
-            "status": "pending_approval"
+            "status": "pending_approval",
         }
-
-        # ── Save po_details (material_name, color_spec, etc.) to SQLite ──
-        po_details = state.get("po_details") or {}
-        if po_details and po.get("po_id"):
-            try:
-                sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
-                if sqlite_dir not in sys.path:
-                    sys.path.insert(0, sqlite_dir)
-                from db import get_erp_db_connection
-                import json as _json
-                conn = get_erp_db_connection()
-                conn.execute(
-                    "UPDATE purchase_orders SET po_details = ? WHERE po_id = ?",
-                    (_json.dumps(po_details), po["po_id"])
-                )
-                conn.commit()
-                conn.close()
-                print(f"  [Orchestrator] po_details saved for PO #{po['po_id']}")
-            except Exception as detail_err:
-                print(f"  [Orchestrator] Could not save po_details: {detail_err}")
 
         elapsed = time.time() - start_time
         print(f"[Timer] node_draft_po took {elapsed:.2f} seconds.")
         return {**state, "po": po, "status": "awaiting_approval"}
+
     except Exception as e:
         elapsed = time.time() - start_time
         print(f"[Timer] node_draft_po failed after {elapsed:.2f} seconds.")
         return {**state, "status": "failed", "error": f"PO draft error: {e}", "po": None}
+
 
 
 # ------------------------------------------------------------------
