@@ -12,6 +12,17 @@ function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [sortBy, setSortBy] = useState('risk')
   const [showOnlyLowStock, setShowOnlyLowStock] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [formData, setFormData] = useState({
+    material_code: '',
+    material_name: '',
+    current_stock: '',
+    reorder_level: '',
+    unit: 'meters',
+    classification: 'B',
+  })
 
   // --------------------------------------------------
   // Get inventory from backend
@@ -121,6 +132,77 @@ function InventoryPage() {
     setStatusFilter('ALL')
     setSortBy('risk')
     setShowOnlyLowStock(false)
+  }
+
+  function updateFormField(field, value) {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  function resetAddForm() {
+    setFormData({
+      material_code: '',
+      material_name: '',
+      current_stock: '',
+      reorder_level: '',
+      unit: 'meters',
+      classification: 'B',
+    })
+    setFormError('')
+  }
+
+  async function submitInventoryItem(event) {
+    event.preventDefault()
+    setFormError('')
+
+    if (!formData.material_name.trim()) {
+      setFormError('Material name is required.')
+      return
+    }
+
+    if (formData.current_stock === '' || formData.reorder_level === '') {
+      setFormError('Current stock and reorder level are required.')
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/inventory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          material_code: formData.material_code.trim() || null,
+          material_name: formData.material_name.trim(),
+          current_stock: Number(formData.current_stock),
+          reorder_level: Number(formData.reorder_level),
+          unit: formData.unit,
+          classification: formData.classification,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data?.detail || 'Failed to save material')
+      }
+
+      await loadInventory()
+      setSearchTerm(data.item?.material_name || formData.material_name)
+      setStatusFilter('ALL')
+      setShowOnlyLowStock(false)
+      setShowAddForm(false)
+      resetAddForm()
+    } catch (err) {
+      console.error(err)
+      setFormError(err.message || 'Could not save inventory material.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   function exportCsv() {
@@ -250,23 +332,43 @@ function InventoryPage() {
 
           </div>
 
-          <button
-            onClick={() => setShowOnlyLowStock(true)}
-            className="
-              px-4
-              py-2.5
-              rounded-xl
-              bg-[#1d4ed8]
-              hover:bg-[#1e40af]
-              text-white
-              text-sm
-              font-medium
-              transition
-              shadow-[0_10px_24px_rgba(29,78,216,0.35)]
-            "
-          >
-            View reorder needs
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowAddForm((current) => !current)}
+              className="
+                px-4
+                py-2.5
+                rounded-xl
+                bg-slate-900
+                hover:bg-slate-700
+                text-white
+                text-sm
+                font-medium
+                transition
+                shadow-[0_10px_24px_rgba(15,23,42,0.2)]
+              "
+            >
+              Add material
+            </button>
+
+            <button
+              onClick={() => setShowOnlyLowStock(true)}
+              className="
+                px-4
+                py-2.5
+                rounded-xl
+                bg-[#1d4ed8]
+                hover:bg-[#1e40af]
+                text-white
+                text-sm
+                font-medium
+                transition
+                shadow-[0_10px_24px_rgba(29,78,216,0.35)]
+              "
+            >
+              View reorder needs
+            </button>
+          </div>
 
       </div>
 
@@ -315,6 +417,130 @@ function InventoryPage() {
           {error}
         </div>
 
+      )}
+
+
+      {/* ================================================ */}
+      {/* ADD MATERIAL */}
+      {/* ================================================ */}
+
+      {showAddForm && (
+        <form
+          onSubmit={submitInventoryItem}
+          className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_25px_rgba(15,23,42,0.04)]"
+        >
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                Inventory entry
+              </p>
+              <h2 className="mt-1 text-base font-semibold text-slate-900">
+                Add or update material
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddForm(false)
+                resetAddForm()
+              }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <label className="xl:col-span-2">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Material name</span>
+              <input
+                value={formData.material_name}
+                onChange={(event) => updateFormField('material_name', event.target.value)}
+                placeholder="Red Cotton Fabric"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Code</span>
+              <input
+                value={formData.material_code}
+                onChange={(event) => updateFormField('material_code', event.target.value)}
+                placeholder="Auto"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm uppercase text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Current stock</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.current_stock}
+                onChange={(event) => updateFormField('current_stock', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Reorder level</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.reorder_level}
+                onChange={(event) => updateFormField('reorder_level', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Unit</span>
+              <select
+                value={formData.unit}
+                onChange={(event) => updateFormField('unit', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="meters">meters</option>
+                <option value="pieces">pieces</option>
+                <option value="spools">spools</option>
+                <option value="rolls">rolls</option>
+                <option value="kg">kg</option>
+                <option value="units">units</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Class</span>
+              <select
+                value={formData.classification}
+                onChange={(event) => updateFormField('classification', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </label>
+          </div>
+
+          {formError && (
+            <p className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+              {formError}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-xl bg-[#1d4ed8] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save material'}
+            </button>
+          </div>
+        </form>
       )}
 
 

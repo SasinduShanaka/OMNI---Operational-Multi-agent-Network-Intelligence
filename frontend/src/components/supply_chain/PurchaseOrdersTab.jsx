@@ -29,7 +29,12 @@ export default function PurchaseOrdersTab({ orders, onUpdate }) {
   const handleApprove = async (po) => {
     setActionLoading(po.po_id)
     try {
-      await supplyChainApi.manualApprovePo(po.po_id)
+      const result = await supplyChainApi.manualApprovePo(po.po_id)
+      if (result.email_sent) {
+        alert(`PO approved and email sent to ${result.email_recipient}.`)
+      } else if (result.email_error) {
+        alert(`PO approved, but email was not sent: ${result.email_error}`)
+      }
       if (onUpdate) onUpdate()
     } catch (e) {
       alert("Failed to approve PO: " + e.message)

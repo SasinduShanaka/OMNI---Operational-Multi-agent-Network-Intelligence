@@ -263,7 +263,7 @@ async def start_pipeline(
     return {"run_id": run_id, **final}
 
 
-async def approve_pipeline(run_id: str, approved_by: str = "Human Manager") -> dict:
+async def approve_pipeline(run_id: str, approved_by: str = "Human Manager", send_email: bool = True) -> dict:
     """Run 2: Resume from saved state, approve PO, ship, track."""
     config = {"configurable": {"thread_id": run_id}}
 
@@ -274,6 +274,24 @@ async def approve_pipeline(run_id: str, approved_by: str = "Human Manager") -> d
 
     resume_state = {**saved.values, "approved_by": approved_by, "status": "running"}
     final = await run2_graph.ainvoke(resume_state, config={"configurable": {"thread_id": run_id + "_r2"}})
+
+    if send_email and final.get("status") != "failed":
+        email_result = {"sent": False, "error": "PO email was not attempted."}
+        po_id = (final.get("po") or {}).get("po_id")
+        if po_id:
+            try:
+                from backend.supply_chain.po_email import send_approved_po_email
+                email_result = send_approved_po_email(po_id, approved_by)
+            except Exception as error:
+                email_result = {"sent": False, "error": str(error)}
+
+        final = {
+            **final,
+            "email_sent": email_result.get("sent", False),
+            "email_recipient": email_result.get("recipient", ""),
+            "email_error": email_result.get("error", "") if not email_result.get("sent") else "",
+        }
+
     return {"run_id": run_id, **final}
 
 

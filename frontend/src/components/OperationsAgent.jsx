@@ -6,6 +6,31 @@ import ForecastPdfPreview from './ForecastPdfPreview'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
+function compactWorkflow(workflow) {
+  const internalSupplyChainSteps = new Set([
+    'Sourcing Agent',
+    'Purchasing Agent',
+    'Freight Agent',
+    'Tracking Agent',
+  ])
+  const compacted = []
+
+  workflow.forEach((step) => {
+    if (internalSupplyChainSteps.has(step)) {
+      if (!compacted.includes('Supply Chain Agent')) {
+        compacted.push('Supply Chain Agent')
+      }
+      return
+    }
+
+    if (!compacted.includes(step)) {
+      compacted.push(step)
+    }
+  })
+
+  return compacted
+}
+
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const { draft, messages, isAsking, error } = chatState
@@ -128,9 +153,9 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
   const suggestedQuestions = [
     'Show me the full fabric stock list',
-    'Which materials are below safety stock?',
-    'How much Black Cotton Fabric is available?',
-    'Forecast demand for GAR-003 next month',
+    'Find suppliers for low stock materials',
+    'Order low stock materials',
+    'Can we produce 1,250 black polos next month?',
   ]
 
   return (
@@ -333,6 +358,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
     return null
   }
 
+  const workflow = compactWorkflow(data.workflow || [])
   const answerShownInForecastCard = data.intent === 'demand_forecast'
     && data.result
     && isForecastUnavailable(data.result)
@@ -350,13 +376,13 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
           WORKFLOW
       ====================================================== */}
 
-      {data.workflow && data.workflow.length > 0 && (
+      {workflow.length > 0 && (
 
         <div className="mb-3">
 
           <div className="flex flex-wrap items-center gap-2">
 
-            {data.workflow.map((agent, index) => (
+            {workflow.map((agent, index) => (
 
               <React.Fragment key={`${agent}-${index}`}>
 
@@ -366,7 +392,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
                 </span>
 
-                {index < data.workflow.length - 1 && (
+                {index < workflow.length - 1 && (
                   <span className="text-slate-300">
                     →
                   </span>
@@ -1375,10 +1401,15 @@ function OmniProcurementCard({ data, material }) {
 
     try {
       const result = await supplyChainApi.approvePo(data.run_id, 'Human Manager')
+      const emailMessage = result.email_sent
+        ? ` PO email sent to ${result.email_recipient}.`
+        : result.email_error
+          ? ` Email not sent: ${result.email_error}`
+          : ''
       setStatus('completed')
       setActionResult({
         type: 'approved',
-        message: 'Approved. Freight booking has been started for this purchase order.',
+        message: `Approved. Freight booking has been started for this purchase order.${emailMessage}`,
         details: result,
       })
     } catch (error) {

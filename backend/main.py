@@ -2,6 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 import asyncio
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -108,6 +109,15 @@ class MaterialRequest(BaseModel):
     material_code: str | None = None
 
 
+class InventoryCreateRequest(BaseModel):
+    material_name: str
+    current_stock: float
+    reorder_level: float
+    unit: str = "units"
+    material_code: str | None = None
+    classification: str | None = "B"
+
+
 class ForecastRequest(BaseModel):
     sku: str
     periods: int = 1
@@ -127,6 +137,83 @@ class FeasibilityRequest(BaseModel):
 
 procurement_sessions = {}
 operations_contexts = {}
+agent_activity_log = []
+
+
+def compact_workflow(workflow):
+    if not workflow:
+        return workflow
+
+    internal_supply_chain_steps = {
+        "Sourcing Agent",
+        "Purchasing Agent",
+        "Freight Agent",
+        "Tracking Agent",
+    }
+    compacted = []
+
+    for step in workflow:
+        if step in internal_supply_chain_steps:
+            if "Supply Chain Agent" not in compacted:
+                compacted.append("Supply Chain Agent")
+            continue
+        if step not in compacted:
+            compacted.append(step)
+
+    return compacted
+
+
+def collect_pending_approvals(result: dict):
+    pending = []
+
+    def add_run(run, material=None):
+        if not isinstance(run, dict) or run.get("status") != "awaiting_approval":
+            return
+        po = run.get("po") or {}
+        pending.append({
+            "run_id": run.get("run_id"),
+            "po_id": po.get("po_id"),
+            "supplier": (run.get("supplier") or {}).get("supplier_name"),
+            "material": (material or {}).get("material_name"),
+            "status": run.get("status"),
+        })
+
+    if isinstance(result.get("data"), dict):
+        add_run(result["data"])
+
+    for item in result.get("procurement") or []:
+        add_run(item.get("run"), item.get("material"))
+
+    for item in ((result.get("result") or {}).get("procurement") or []):
+        add_run(item.get("run"), item)
+
+    return [item for item in pending if item.get("run_id")]
+
+
+def record_agent_activity(action: str, result: dict | None = None, session_id: str | None = None, severity: str = "Low"):
+    result = result or {}
+    record = {
+        "agent": result.get("agent", "Operations Agent"),
+        "action": action,
+        "intent": result.get("intent"),
+        "status": result.get("status"),
+        "workflow": result.get("workflow", []),
+        "severity": severity,
+        "session_id": session_id,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+    try:
+        from database.connection import db
+        db["agent_activity"].insert_one(record.copy())
+    except Exception as error:
+        record["storage_warning"] = str(error)
+
+    agent_activity_log.append(record)
+    if len(agent_activity_log) > 200:
+        del agent_activity_log[:-200]
+
+    return record
 
 
 def is_low_stock_supply_chain_request(message: str) -> bool:
@@ -188,7 +275,146 @@ def remember_operations_context(session_id: str | None, result: dict):
             "intent": result.get("intent"),
             "results": result.get("results", []),
             "procurement": result.get("procurement", []),
+            "pending_approvals": collect_pending_approvals(result),
         }
+        return
+
+    pending = collect_pending_approvals(result)
+    if pending:
+        operations_contexts[session_id] = {
+            "intent": result.get("intent"),
+            "pending_approvals": pending,
+        }
+
+
+def is_approval_followup(message: str, session_id: str | None) -> bool:
+    if not session_id or session_id not in operations_contexts:
+        return False
+    if not operations_contexts[session_id].get("pending_approvals"):
+        return False
+
+    text = message.lower()
+    return any(word in text for word in ("approve", "authorize", "reject", "cancel"))
+
+
+def select_pending_approval(message: str, pending: list[dict]):
+    text = message.lower()
+
+    po_match = None
+    import re
+    match = re.search(r"#?(\d+)", text)
+    if match:
+        po_match = int(match.group(1))
+
+    if po_match is not None:
+        for item in pending:
+            if item.get("po_id") == po_match:
+                return [item], None
+        return [], f"I could not find pending PO #{po_match} in this chat."
+
+    if "all" in text or "them" in text or "these" in text:
+        return pending, None
+
+    if "first" in text or "1st" in text:
+        return pending[:1], None
+
+    if "second" in text or "2nd" in text:
+        return pending[1:2], None
+
+    if len(pending) == 1:
+        return pending, None
+
+    choices = ", ".join(
+        f"PO #{item.get('po_id')} for {item.get('material') or item.get('supplier') or 'the supplier'}"
+        for item in pending
+    )
+    return [], f"I found multiple pending approvals: {choices}. Please say which PO to approve, or say approve all."
+
+
+def handle_approval_followup(session_id: str, request: AskRequest):
+    from backend.supply_chain.orchestrator import approve_pipeline
+    import asyncio
+
+    context = operations_contexts.get(session_id, {})
+    pending = context.get("pending_approvals", [])
+    selected, question = select_pending_approval(request.message, pending)
+
+    if question:
+        result = {
+            "agent": "Operations Agent",
+            "task": "Purchase Order Approval",
+            "delegated_to": "Supply Chain Agent",
+            "intent": "approval_followup",
+            "status": "needs_more_info",
+            "workflow": ["Operations Agent", "Supply Chain Agent"],
+            "answer": question,
+        }
+        record_agent_activity("Approval follow-up needs clarification", result, session_id, "Medium")
+        return result
+
+    rejecting = any(word in request.message.lower() for word in ("reject", "cancel"))
+    completed = []
+    failed = []
+
+    for item in selected:
+        try:
+            if rejecting:
+                completed.append({**item, "status": "rejected"})
+            else:
+                approved = asyncio.run(approve_pipeline(item["run_id"], approved_by="Human Manager"))
+                if approved.get("error") or approved.get("status") == "failed":
+                    failed.append({**item, "error": approved.get("error", "Approval failed.")})
+                else:
+                    completed.append({**item, "approval": approved, "status": "approved"})
+        except Exception as error:
+            failed.append({**item, "error": str(error)})
+
+    completed_run_ids = {item.get("run_id") for item in completed}
+    context["pending_approvals"] = [
+        item for item in pending
+        if item.get("run_id") not in completed_run_ids
+    ]
+
+    verb = "rejected" if rejecting else "approved"
+    answer = f"I {verb} {len(completed)} purchase order(s)."
+    if completed and not rejecting:
+        shipments = [
+            item.get("approval", {}).get("shipment_id")
+            for item in completed
+            if item.get("approval", {}).get("shipment_id")
+        ]
+        if shipments:
+            answer += f" Freight booking is complete for shipment(s): {', '.join(f'#{shipment}' for shipment in shipments)}."
+        email_sent = [
+            item.get("approval", {}).get("email_recipient")
+            for item in completed
+            if item.get("approval", {}).get("email_sent")
+        ]
+        email_errors = [
+            item.get("approval", {}).get("email_error")
+            for item in completed
+            if item.get("approval", {}).get("email_error")
+        ]
+        if email_sent:
+            answer += f" PO email sent to {', '.join(email_sent)}."
+        elif email_errors:
+            answer += f" The PO was approved, but the email was not sent: {email_errors[0]}"
+    if failed:
+        answer += f" {len(failed)} item(s) could not be processed and need manual review."
+
+    result = {
+        "agent": "Operations Agent",
+        "task": "Purchase Order Approval",
+        "delegated_to": "Supply Chain Agent",
+        "intent": "approval_followup",
+        "status": "success" if not failed else "partial_success",
+        "workflow": ["Operations Agent", "Supply Chain Agent"],
+        "answer": answer,
+        "results": completed,
+        "errors": failed,
+    }
+    record_agent_activity(f"Purchase order follow-up {verb}", result, session_id, "Medium")
+    return result
 
 
 def handle_procurement_turn(session_id: str, request: AskRequest):
@@ -352,6 +578,26 @@ def health():
     }
 
 
+@app.get("/agent-activity")
+def agent_activity(limit: int = 50):
+    limit = max(1, min(limit, 200))
+
+    try:
+        from database.connection import db
+        records = list(
+            db["agent_activity"]
+            .find({}, {"_id": 0})
+            .sort("timestamp", -1)
+            .limit(limit)
+        )
+        if records:
+            return records
+    except Exception as error:
+        print(f"Agent activity fallback: {error}")
+
+    return list(reversed(agent_activity_log[-limit:]))
+
+
 # ============================================================
 # OPERATIONS AGENT
 # ============================================================
@@ -369,29 +615,43 @@ def ask_agent(request: AskRequest):
         session_id = request.session_id
         from agents.operations_agent import process_request
 
+        if is_approval_followup(request.message, session_id):
+            return handle_approval_followup(session_id, request)
+
         if is_contextual_low_stock_order(request.message, session_id):
             if session_id and session_id in procurement_sessions:
                 del procurement_sessions[session_id]
 
             result = process_request("order these low stock materials")
+            result["workflow"] = compact_workflow(result.get("workflow"))
             remember_operations_context(session_id, result)
+            record_agent_activity("Contextual low-stock order", result, session_id, "Medium")
             return result
 
         if session_id and session_id in procurement_sessions and is_low_stock_supply_chain_request(request.message):
             del procurement_sessions[session_id]
 
         if session_id and session_id in procurement_sessions:
-            return handle_procurement_turn(session_id, request)
+            result = handle_procurement_turn(session_id, request)
+            result["workflow"] = compact_workflow(result.get("workflow"))
+            remember_operations_context(session_id, result)
+            record_agent_activity("Procurement session turn", result, session_id, "Medium")
+            return result
 
         result = process_request(request.message)
+        result["workflow"] = compact_workflow(result.get("workflow"))
         remember_operations_context(session_id, result)
+        record_agent_activity("Ask Omni request processed", result, session_id)
 
         if result.get("status") == "init_session":
             # Start new session
             new_session = session_id or str(uuid.uuid4())
             result["session_id"] = new_session
             # Immediately take the first turn
-            return handle_procurement_turn(new_session, request)
+            result = handle_procurement_turn(new_session, request)
+            result["workflow"] = compact_workflow(result.get("workflow"))
+            record_agent_activity("Procurement session started", result, new_session, "Medium")
+            return result
 
         return result
 
@@ -460,6 +720,44 @@ def inventory():
         raise HTTPException(
             status_code=500,
             detail="Unable to retrieve inventory."
+        )
+
+
+# ============================================================
+# INVENTORY - ADD OR UPDATE MATERIAL
+# ============================================================
+
+@app.post("/inventory")
+def add_inventory(request: InventoryCreateRequest):
+
+    try:
+        from agents.inventory_agent import add_inventory_item
+
+        return add_inventory_item(
+            material_name=request.material_name,
+            current_stock=request.current_stock,
+            reorder_level=request.reorder_level,
+            unit=request.unit,
+            material_code=request.material_code,
+            classification=request.classification,
+        )
+
+    except ValueError as error:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+    except Exception as error:
+
+        print(
+            f"Add inventory error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to save inventory material."
         )
 
 
