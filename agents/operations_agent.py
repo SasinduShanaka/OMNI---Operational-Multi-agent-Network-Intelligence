@@ -14,6 +14,7 @@ except ImportError:
     Groq = None
 
 from agents.inventory_agent import (
+    add_inventory_item,
     get_all_inventory,
     get_low_stock,
     get_out_of_stock,
@@ -69,6 +70,8 @@ INVENTORY_INTENTS = {
     "inventory_summary",
     "largest_shortages",
     "inventory_kpis",
+    "inventory_add",
+    "low_stock_procurement",
 }
 
 PRODUCTION_INTENTS = {
@@ -84,7 +87,7 @@ PRODUCTION_INTENTS = {
 class OperationsState(TypedDict, total=False):
     user_request: str
     decision: dict
-    route: Literal["inventory", "forecast", "production", "planning", "procurement", "unknown"]
+    route: Literal["inventory", "forecast", "production", "planning", "low_stock_procurement", "procurement", "unknown"]
     response: dict
     product_name: str | None
     sku: str | None
@@ -93,6 +96,8 @@ class OperationsState(TypedDict, total=False):
     production: dict
     forecast: dict
     procurement: list[dict]
+    inventory: list[dict]
+    supply_chain_mode: str
     risks: list[str]
 
 
@@ -102,7 +107,7 @@ class OperationsState(TypedDict, total=False):
 
 def _extract_common_entities(user_request: str) -> dict:
     sku_match = re.search(r"\bGAR-\d{3}\b", user_request, re.IGNORECASE)
-    material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG)-\d{3}\b", user_request, re.IGNORECASE)
+    material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", user_request, re.IGNORECASE)
     quantity_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", user_request)
 
     return {
@@ -113,6 +118,82 @@ def _extract_common_entities(user_request: str) -> dict:
         "required_quantity": float(quantity_match.group(1).replace(",", "")) if quantity_match else None,
         "required_date": _extract_date(user_request),
     }
+
+
+def _clean_material_name(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    cleaned = re.sub(
+        r"\b(to|into|in|the|this|that|these|those|inventory|stock|material|materials|with|reorder|level|threshold|minimum|current|on hand)\b",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\b\d[\d,]*(?:\.\d+)?\b", " ", cleaned)
+    cleaned = re.sub(r"\b(meters?|yards?|pieces?|pcs|spools?|rolls?|kgs?|kilograms?|units?)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -,.")
+
+    return cleaned.title() if cleaned else None
+
+
+def _extract_inventory_add_entities(user_request: str, entities: dict) -> dict:
+    text = user_request.lower()
+    extracted = {}
+
+    unit_match = re.search(
+        r"\b(meters?|yards?|pieces?|pcs|spools?|rolls?|kgs?|kilograms?|units?)\b",
+        text,
+    )
+    if unit_match:
+        unit = unit_match.group(1)
+        extracted["unit"] = "pieces" if unit == "pcs" else unit
+
+    reorder_match = re.search(
+        r"(?:reorder(?:\s+level|\s+point)?|threshold|minimum|min)\s*(?:is|=|to|at|of)?\s*(\d[\d,]*(?:\.\d+)?)",
+        text,
+    )
+    if reorder_match:
+        extracted["reorder_level"] = float(reorder_match.group(1).replace(",", ""))
+
+    numbers = [
+        float(match.group(1).replace(",", ""))
+        for match in re.finditer(r"(\d[\d,]*(?:\.\d+)?)", user_request)
+    ]
+    if numbers:
+        extracted["current_stock"] = numbers[0]
+
+    code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", user_request, re.IGNORECASE)
+    if code_match:
+        extracted["material_code"] = code_match.group().upper()
+
+    class_match = re.search(r"\bclass(?:ification)?\s*([ABC])\b", user_request, re.IGNORECASE)
+    if class_match:
+        extracted["classification"] = class_match.group(1).upper()
+
+    name_patterns = [
+        r"(?:add|register|create)\s+(?:new\s+)?(?:material\s+)?(?:\d[\d,]*(?:\.\d+)?\s+\w+\s+(?:of\s+)?)?(.+?)(?:\s+(?:to|into|in)\s+(?:the\s+)?(?:inventory|stock)|\s+with\s+|\s+reorder|\s+threshold|\s+minimum|$)",
+        r"(?:put|enter)\s+(?:\d[\d,]*(?:\.\d+)?\s+\w+\s+(?:of\s+)?)?(.+?)(?:\s+(?:to|into|in)\s+(?:the\s+)?(?:inventory|stock)|\s+with\s+|\s+reorder|\s+threshold|\s+minimum|$)",
+    ]
+    for pattern in name_patterns:
+        match = re.search(pattern, user_request, re.IGNORECASE)
+        if match:
+            name = _clean_material_name(match.group(1))
+            if name:
+                extracted["material_name"] = name
+                break
+
+    if not extracted.get("material_name") and entities.get("material_name"):
+        extracted["material_name"] = entities["material_name"]
+
+    return {**entities, **extracted}
+
+
+def _has_any_word(text: str, words: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", text)
+        for word in words
+    )
 
 
 def _extract_date(user_request: str) -> str | None:
@@ -224,12 +305,42 @@ def _heuristic_understand_request(user_request: str) -> dict:
             "what is the material",
         ))
     )
+    low_stock_supply_chain_question = (
+        any(phrase in text for phrase in (
+            "low stock",
+            "low inventory",
+            "these low stock",
+            "those low stock",
+            "reorder level",
+            "below reorder",
+        ))
+        and _has_any_word(text, (
+            "order",
+            "buy",
+            "procure",
+            "source",
+            "supplier",
+            "suppliers",
+            "purchase",
+            "replenish",
+        ))
+    )
+    inventory_add_question = (
+        _has_any_word(text, ("add", "register", "create", "put", "enter"))
+        and any(word in text for word in ("inventory", "stock", "material", "fabric", "thread", "button", "label", "packaging"))
+        and not _has_any_word(text, ("order", "buy", "procure", "source", "supplier", "purchase"))
+    )
 
     if any(word in text for word in ("forecast", "forcast", "predict", "prediction", "future demand", "demand outlook")):
         intent = "demand_forecast"
+    elif inventory_add_question:
+        entities = _extract_inventory_add_entities(user_request, entities)
+        intent = "inventory_add"
     elif product_material_question:
         intent = "product_materials"
-    elif any(word in text for word in ("buy", "order", "source", "procure", "supplier", "purchase")) or ("need" in text and material_request):
+    elif low_stock_supply_chain_question:
+        intent = "low_stock_procurement"
+    elif _has_any_word(text, ("buy", "order", "source", "procure", "supplier", "purchase")) or ("need" in text and material_request):
         intent = "procurement"
     elif any(word in text for word in ("can we make", "produce", "manufacture", "feasible", "fulfill order", "deliver")):
         intent = "production_feasibility"
@@ -382,7 +493,20 @@ Use when the user asks:
 - inventory percentages
 - inventory statistics
 
-12. procurement
+12. inventory_add
+
+Use when the user asks to add, create, register, enter or put
+a material into inventory or stock.
+
+Examples:
+- add 500 meters of Red Cotton Fabric to inventory with reorder level 200
+- register new material Black Rib Fabric, current stock 300 meters, reorder 100
+- put 1000 pieces of metal buttons into stock
+
+Extract material_name, material_code, current_stock, reorder_level,
+unit and classification when available.
+
+13. procurement
 
 Use when the user asks to order, buy, source, or procure materials.
 Examples:
@@ -390,6 +514,18 @@ Examples:
 - Order 500 zippers from YKK
 - We need to buy more dye
 - Source some fabric
+
+14. low_stock_procurement
+
+Use when the user asks to source, find suppliers for, buy,
+order, procure or replenish low-stock materials.
+
+Examples:
+- order the low stock materials
+- place an order for low stock materials
+- find suppliers for low inventory items
+- source the items below reorder level
+- replenish materials that are running low
 
 13. production_feasibility
 
@@ -490,6 +626,12 @@ is production_feasibility.
 "I need 300 meters of organic cotton"
 is procurement.
 
+"Add 300 meters of Organic Cotton Fabric to inventory"
+is inventory_add, not procurement.
+
+"Place an order for low stock materials"
+is low_stock_procurement.
+
 "What will demand look like next month?"
 is demand_forecast.
 
@@ -519,6 +661,10 @@ Extract the following information when available:
 - sku                (for example GAR-001)
 - required_quantity  (a number, with no thousands separators)
 - required_date      (see the date rule below)
+- current_stock      (only for inventory_add)
+- reorder_level      (only for inventory_add)
+- unit               (only for inventory_add, for example meters, pieces, units)
+- classification     (only for inventory_add, A/B/C if supplied)
 
 DATE RULE:
 
@@ -548,7 +694,11 @@ Example for an inventory question:
     "product_name": null,
     "sku": null,
     "required_quantity": null,
-    "required_date": null
+    "required_date": null,
+    "current_stock": null,
+    "reorder_level": null,
+    "unit": null,
+    "classification": null
 }}
 
 Example for "Can we make 10,000 Black Polos by September 30?":
@@ -560,7 +710,11 @@ Example for "Can we make 10,000 Black Polos by September 30?":
     "product_name": "Black Polo",
     "sku": null,
     "required_quantity": 10000,
-    "required_date": "{example_date}"
+    "required_date": "{example_date}",
+    "current_stock": null,
+    "reorder_level": null,
+    "unit": null,
+    "classification": null
 }}
 
 User request:
@@ -604,7 +758,11 @@ User request:
             "product_name": result.get("product_name"),
             "sku": result.get("sku"),
             "required_quantity": result.get("required_quantity"),
-            "required_date": result.get("required_date")
+            "required_date": result.get("required_date"),
+            "current_stock": result.get("current_stock"),
+            "reorder_level": result.get("reorder_level"),
+            "unit": result.get("unit"),
+            "classification": result.get("classification")
         }
 
     except json.JSONDecodeError:
@@ -616,7 +774,11 @@ User request:
             "product_name": None,
             "sku": None,
             "required_quantity": None,
-            "required_date": None
+            "required_date": None,
+            "current_stock": None,
+            "reorder_level": None,
+            "unit": None,
+            "classification": None
         }
 
 
@@ -898,10 +1060,116 @@ def _execute_specialist_request(user_request: str):
     material_name = decision.get("material_name")
     material_code = decision.get("material_code")
     required_quantity = decision.get("required_quantity")
+    current_stock = decision.get("current_stock")
+    reorder_level = decision.get("reorder_level")
+    unit = decision.get("unit") or "units"
+    classification = decision.get("classification") or "B"
 
     product_name = decision.get("product_name")
     sku = decision.get("sku")
     required_date = decision.get("required_date")
+
+
+    # ========================================================
+    # ADD OR UPDATE INVENTORY MATERIAL
+    # ========================================================
+
+    if intent == "inventory_add":
+
+        if not material_name:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Add Inventory Material",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "needs_more_info",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": "Sure, I can add that to inventory. What is the material name?"
+            }
+
+        if current_stock is None:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Add Inventory Material",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "needs_more_info",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": f"Got it. How much {material_name} should I add to inventory?"
+            }
+
+        if reorder_level is None:
+
+            return {
+                "agent": "Operations Agent",
+                "task": "Add Inventory Material",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "needs_more_info",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": f"I can add {material_name}. What reorder level should I use?"
+            }
+
+        try:
+            result = add_inventory_item(
+                material_name=material_name,
+                current_stock=current_stock,
+                reorder_level=reorder_level,
+                unit=unit,
+                material_code=material_code,
+                classification=classification,
+            )
+        except ValueError as error:
+            return {
+                "agent": "Operations Agent",
+                "task": "Add Inventory Material",
+                "delegated_to": "Inventory Agent",
+                "llm_used": True,
+                "intent": intent,
+                "status": "invalid_input",
+                "workflow": [
+                    "Operations Agent",
+                    "Inventory Agent"
+                ],
+                "answer": str(error)
+            }
+
+        item = result["item"]
+        action_text = "added" if result["action"] == "created" else "updated"
+        status_text = item["status"].replace("_", " ").lower()
+
+        return {
+            "agent": "Operations Agent",
+            "task": "Add Inventory Material",
+            "delegated_to": "Inventory Agent",
+            "llm_used": True,
+            "intent": intent,
+            "status": "success",
+            "workflow": [
+                "Operations Agent",
+                "Inventory Agent"
+            ],
+            "answer": (
+                f"Done. I {action_text} {item['material_name']} ({item['material_code']}) "
+                f"with {_format_count(item['current_stock'])} {item['unit']} on hand and a reorder level of "
+                f"{_format_count(item['reorder_level'])} {item['unit']}. It is currently {status_text}."
+            ),
+            "result": item
+        }
 
 
     # ========================================================
@@ -1921,6 +2189,8 @@ def _execute_specialist_request(user_request: str):
 def _route_from_intent(intent: str) -> str:
     if intent == "production_feasibility":
         return "planning"
+    if intent == "low_stock_procurement":
+        return "low_stock_procurement"
     if intent in INVENTORY_INTENTS:
         return "inventory"
     if intent == "demand_forecast":
@@ -1950,9 +2220,171 @@ def _node_forecast(state: OperationsState) -> OperationsState:
     return {**state, "response": response}
 
 
+def _wants_purchase_order(user_request: str) -> bool:
+    text = user_request.lower()
+    return any(word in text for word in ("order", "buy", "procure", "purchase", "replenish"))
+
+
 def _node_production(state: OperationsState) -> OperationsState:
     response = _execute_specialist_request(state["user_request"])
     response["graph"] = response.get("workflow", ["Operations Agent", "Production Agent"])
+    return {**state, "response": response}
+
+
+def _node_low_stock_inventory(state: OperationsState) -> OperationsState:
+    low_stock_items = get_low_stock()
+    mode = "order" if _wants_purchase_order(state["user_request"]) else "source"
+
+    return {
+        **state,
+        "inventory": low_stock_items,
+        "supply_chain_mode": mode,
+    }
+
+
+def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
+    import asyncio
+
+    inventory = state.get("inventory") or []
+    mode = state.get("supply_chain_mode", "source")
+    supply_chain_results = []
+
+    for item in inventory:
+        material_type, requirement_id, unit_cost = _material_type_for_shortage(
+            item.get("material_code"),
+            item.get("material_name"),
+        )
+        qty = float(item.get("shortage") or 0)
+        if qty <= 0:
+            qty = max(float(item.get("reorder_level") or 0), 1.0)
+
+        try:
+            if mode == "order":
+                from backend.supply_chain.orchestrator import start_pipeline
+
+                run = asyncio.run(start_pipeline(
+                    material_type=material_type,
+                    requirement_id=requirement_id,
+                    qty=qty,
+                    total_value=qty * unit_cost,
+                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                    destination="Colombo, LK",
+                ))
+                supply_chain_results.append({
+                    "material": item,
+                    "material_type": material_type,
+                    "mode": mode,
+                    "run": run,
+                })
+            else:
+                from agents.supply_chain.sourcing_agent import run_sourcing_agent
+
+                supplier = asyncio.run(run_sourcing_agent(
+                    material_type=material_type,
+                    requirement_id=requirement_id,
+                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                ))
+                supply_chain_results.append({
+                    "material": item,
+                    "material_type": material_type,
+                    "mode": mode,
+                    "supplier": supplier,
+                })
+        except Exception as error:
+            supply_chain_results.append({
+                "material": item,
+                "material_type": material_type,
+                "mode": mode,
+                "error": str(error),
+            })
+
+    return {**state, "procurement": supply_chain_results}
+
+
+def _node_synthesize_low_stock_procurement(state: OperationsState) -> OperationsState:
+    inventory = state.get("inventory") or []
+    procurement = state.get("procurement") or []
+    mode = state.get("supply_chain_mode", "source")
+
+    if not inventory:
+        response = {
+            "agent": "Operations Agent",
+            "task": "Low Stock Supply Chain Check",
+            "delegated_to": "Inventory Agent",
+            "llm_used": client is not None,
+            "intent": "low_stock_procurement",
+            "status": "success",
+            "workflow": ["Operations Agent", "Inventory Agent"],
+            "answer": "Good news. I checked inventory, and there are no low-stock materials to source or order right now.",
+            "results": [],
+            "procurement": [],
+        }
+        response["graph"] = response["workflow"]
+        return {**state, "response": response}
+
+    item_summaries = [
+        (
+            f"{item.get('material_name')} needs {_format_count(item.get('shortage', 0))} "
+            f"{_unit_phrase(item.get('shortage', 0), item.get('unit'))}"
+        )
+        for item in inventory
+    ]
+    successful = [
+        result for result in procurement
+        if result.get("supplier") or (result.get("run") or {}).get("supplier")
+    ]
+    failed = [result for result in procurement if result.get("error")]
+
+    if mode == "order":
+        drafted = [
+            result for result in procurement
+            if (result.get("run") or {}).get("status") == "awaiting_approval"
+        ]
+        answer = (
+            f"I found {len(inventory)} low-stock material(s): "
+            f"{'; '.join(item_summaries)}. "
+        )
+        if drafted:
+            answer += (
+                f"I asked Supply Chain to source them and drafted {len(drafted)} purchase order(s). "
+                "Manual approval is required before anything is finalized. "
+                "Please review the PO card(s) below and click Authorize PO if you want me to continue."
+            )
+        else:
+            answer += "I tried to create purchase orders, but none were drafted. Please review the supplier errors below."
+    else:
+        supplier_summaries = []
+        for result in successful:
+            item = result.get("material") or {}
+            supplier = result.get("supplier") or {}
+            supplier_summaries.append(
+                f"{item.get('material_name')}: {supplier.get('supplier_name')} "
+                f"({supplier.get('country')}, rating {supplier.get('rating')})"
+            )
+        answer = (
+            f"I checked the low-stock materials and found suitable suppliers. "
+            f"{'; '.join(supplier_summaries)}."
+            if supplier_summaries
+            else "I checked the low-stock materials, but I could not find suitable suppliers automatically."
+        )
+
+    if failed:
+        answer += f" {len(failed)} item(s) need manual review because supplier lookup failed."
+
+    response = {
+        "agent": "Operations Agent",
+        "task": "Low Stock Supply Chain Coordination",
+        "delegated_to": "Supply Chain Agent",
+        "llm_used": client is not None,
+        "intent": "low_stock_procurement",
+        "status": "success",
+        "workflow": ["Operations Agent", "Inventory Agent", "Supply Chain Agent"],
+        "answer": answer,
+        "results": inventory,
+        "procurement": procurement,
+        "requires_approval": mode == "order" and any((item.get("run") or {}).get("status") == "awaiting_approval" for item in procurement),
+    }
+    response["graph"] = response["workflow"]
     return {**state, "response": response}
 
 
@@ -2232,6 +2664,9 @@ def build_operations_graph():
     graph.add_node("inventory", _node_inventory)
     graph.add_node("forecast", _node_forecast)
     graph.add_node("production", _node_production)
+    graph.add_node("low_stock_inventory", _node_low_stock_inventory)
+    graph.add_node("low_stock_supply_chain", _node_low_stock_supply_chain)
+    graph.add_node("synthesize_low_stock_procurement", _node_synthesize_low_stock_procurement)
     graph.add_node("prepare_plan", _node_prepare_plan)
     graph.add_node("production_evidence", _node_production_evidence)
     graph.add_node("forecast_evidence", _node_forecast_evidence)
@@ -2249,10 +2684,15 @@ def build_operations_graph():
             "forecast": "forecast",
             "production": "production",
             "planning": "prepare_plan",
+            "low_stock_procurement": "low_stock_inventory",
             "procurement": "procurement",
             "unknown": "unknown",
         },
     )
+
+    graph.add_edge("low_stock_inventory", "low_stock_supply_chain")
+    graph.add_edge("low_stock_supply_chain", "synthesize_low_stock_procurement")
+    graph.add_edge("synthesize_low_stock_procurement", END)
 
     graph.add_edge("prepare_plan", "production_evidence")
     graph.add_edge("production_evidence", "forecast_evidence")

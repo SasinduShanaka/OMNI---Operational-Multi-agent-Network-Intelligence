@@ -1,4 +1,5 @@
 import os
+import re
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -55,6 +56,7 @@ def format_inventory_item(item):
     return {
         "material_code": item.get("material_code"),
         "material_name": item.get("material_name"),
+        "classification": item.get("classification", "B"),
         "status": status,
         "current_stock": current_stock,
         "reorder_level": reorder_level,
@@ -67,6 +69,115 @@ def format_inventory_item(item):
             if status == "LOW_STOCK"
             else "No immediate action required"
         )
+    }
+
+
+def _material_code_prefix(material_name):
+    value = (material_name or "").lower()
+
+    if any(word in value for word in ("fabric", "cotton", "fleece", "denim", "rayon", "polyester")):
+        return "FAB"
+    if "thread" in value:
+        return "THR"
+    if "button" in value:
+        return "BTN"
+    if "label" in value:
+        return "LBL"
+    if any(word in value for word in ("packaging", "polybag", "carton")):
+        return "PKG"
+    return "MAT"
+
+
+def _generate_material_code(material_name):
+    prefix = _material_code_prefix(material_name)
+    pattern = re.compile(rf"^{prefix}-(\d{{3}})$")
+    highest = 0
+
+    for item in inventory_collection.find(
+        {"material_code": {"$regex": f"^{prefix}-\\d{{3}}$"}},
+        {"material_code": 1}
+    ):
+        match = pattern.match(item.get("material_code", ""))
+        if match:
+            highest = max(highest, int(match.group(1)))
+
+    return f"{prefix}-{highest + 1:03d}"
+
+
+def add_inventory_item(
+    material_name,
+    current_stock,
+    reorder_level,
+    unit="units",
+    material_code=None,
+    classification="B",
+):
+    """
+    Create a new inventory item or update an existing one.
+    Existing records are matched by material_code first, then material_name.
+    """
+
+    material_name = (material_name or "").strip()
+    material_code = (material_code or "").strip().upper() or None
+    unit = (unit or "units").strip()
+    classification = (classification or "B").strip().upper()
+
+    if not material_name:
+        raise ValueError("Material name is required.")
+
+    try:
+        current_stock = float(current_stock)
+        reorder_level = float(reorder_level)
+    except (TypeError, ValueError):
+        raise ValueError("Current stock and reorder level must be valid numbers.")
+
+    if current_stock < 0 or reorder_level < 0:
+        raise ValueError("Current stock and reorder level cannot be negative.")
+
+    existing = None
+    if material_code:
+        existing = inventory_collection.find_one({"material_code": material_code})
+
+    if existing is None:
+        existing = inventory_collection.find_one({
+            "material_name": {"$regex": f"^{re.escape(material_name)}$", "$options": "i"}
+        })
+
+    if existing is None and not material_code:
+        material_code = _generate_material_code(material_name)
+
+    if existing:
+        material_code = existing.get("material_code") or material_code
+        inventory_collection.update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {
+                    "material_name": material_name,
+                    "current_stock": current_stock,
+                    "reorder_level": reorder_level,
+                    "unit": unit,
+                    "classification": classification,
+                }
+            }
+        )
+        saved_item = inventory_collection.find_one({"_id": existing["_id"]})
+        action = "updated"
+    else:
+        document = {
+            "material_code": material_code,
+            "material_name": material_name,
+            "current_stock": current_stock,
+            "reorder_level": reorder_level,
+            "unit": unit,
+            "classification": classification,
+        }
+        inserted = inventory_collection.insert_one(document)
+        saved_item = inventory_collection.find_one({"_id": inserted.inserted_id})
+        action = "created"
+
+    return {
+        "action": action,
+        "item": format_inventory_item(saved_item)
     }
 
 

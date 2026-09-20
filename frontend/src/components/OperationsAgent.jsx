@@ -6,6 +6,31 @@ import ForecastPdfPreview from './ForecastPdfPreview'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
+function compactWorkflow(workflow) {
+  const internalSupplyChainSteps = new Set([
+    'Sourcing Agent',
+    'Purchasing Agent',
+    'Freight Agent',
+    'Tracking Agent',
+  ])
+  const compacted = []
+
+  workflow.forEach((step) => {
+    if (internalSupplyChainSteps.has(step)) {
+      if (!compacted.includes('Supply Chain Agent')) {
+        compacted.push('Supply Chain Agent')
+      }
+      return
+    }
+
+    if (!compacted.includes(step)) {
+      compacted.push(step)
+    }
+  })
+
+  return compacted
+}
+
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const { draft, messages, isAsking, error } = chatState
@@ -128,9 +153,9 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
   const suggestedQuestions = [
     'Show me the full fabric stock list',
-    'Which materials are below safety stock?',
-    'How much Black Cotton Fabric is available?',
-    'Forecast demand for GAR-003 next month',
+    'Find suppliers for low stock materials',
+    'Order low stock materials',
+    'Can we produce 1,250 black polos next month?',
   ]
 
   return (
@@ -333,6 +358,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
     return null
   }
 
+  const workflow = compactWorkflow(data.workflow || [])
   const answerShownInForecastCard = data.intent === 'demand_forecast'
     && data.result
     && isForecastUnavailable(data.result)
@@ -350,13 +376,13 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
           WORKFLOW
       ====================================================== */}
 
-      {data.workflow && data.workflow.length > 0 && (
+      {workflow.length > 0 && (
 
         <div className="mb-3">
 
           <div className="flex flex-wrap items-center gap-2">
 
-            {data.workflow.map((agent, index) => (
+            {workflow.map((agent, index) => (
 
               <React.Fragment key={`${agent}-${index}`}>
 
@@ -366,7 +392,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
                 </span>
 
-                {index < data.workflow.length - 1 && (
+                {index < workflow.length - 1 && (
                   <span className="text-slate-300">
                     →
                   </span>
@@ -442,6 +468,29 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
       {data.intent === 'procurement' && data.data && (
         <OmniProcurementCard data={data.data} />
+      )}
+
+      {data.intent === 'low_stock_procurement' && data.results && (
+        <LowStockList results={data.results} />
+      )}
+
+      {data.intent === 'low_stock_procurement' && data.procurement && (
+        <div className="mt-4 space-y-4">
+          {data.procurement.map((item, index) => (
+            item.run ? (
+              <OmniProcurementCard
+                key={item.run.run_id || index}
+                data={item.run}
+                material={item.material}
+              />
+            ) : (
+              <SupplierSuggestionCard
+                key={`${item.material?.material_code || 'material'}-${index}`}
+                item={item}
+              />
+            )
+          ))}
+        </div>
       )}
 
       {/* ======================================================
@@ -1306,7 +1355,34 @@ function formatStatus(status) {
    Replace with the real UI once the intended design is available.
 ============================================================ */
 
-function OmniProcurementCard({ data }) {
+function SupplierSuggestionCard({ item }) {
+  const material = item.material || {}
+  const supplier = item.supplier || {}
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-700 shadow-sm">
+      <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Supplier match</p>
+        <p className="mt-1 font-semibold text-slate-900">{material.material_name || 'Low-stock material'}</p>
+      </div>
+      {item.error ? (
+        <div className="px-4 py-3 text-xs text-red-700">{item.error}</div>
+      ) : (
+        <div className="grid gap-3 p-4 md:grid-cols-2">
+          <Detail label="Suggested Supplier" value={supplier.supplier_name || '-'} />
+          <Detail label="Country" value={supplier.country || '-'} />
+          <Detail label="Rating" value={supplier.rating !== undefined ? Number(supplier.rating).toFixed(1) : '-'} />
+          <Detail label="Lead Time" value={supplier.lead_time_days ? `${supplier.lead_time_days} days` : '-'} />
+          <Detail label="Shortage" value={material.shortage ? `${Number(material.shortage).toLocaleString()} ${material.unit || 'units'}` : '-'} />
+          <Detail label="Category" value={formatStatus(item.material_type || 'unknown')} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+function OmniProcurementCard({ data, material }) {
   const supplier = data.supplier || {}
   const po = data.po || {}
   const [status, setStatus] = useState(data.status || 'unknown')
@@ -1325,10 +1401,15 @@ function OmniProcurementCard({ data }) {
 
     try {
       const result = await supplyChainApi.approvePo(data.run_id, 'Human Manager')
+      const emailMessage = result.email_sent
+        ? ` PO email sent to ${result.email_recipient}.`
+        : result.email_error
+          ? ` Email not sent: ${result.email_error}`
+          : ''
       setStatus('completed')
       setActionResult({
         type: 'approved',
-        message: 'Approved. Freight booking has been started for this purchase order.',
+        message: `Approved. Freight booking has been started for this purchase order.${emailMessage}`,
         details: result,
       })
     } catch (error) {
@@ -1366,7 +1447,9 @@ function OmniProcurementCard({ data }) {
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#0369a1]">Procurement run</p>
           <p className="mt-1 font-semibold text-slate-900">
-            {supplier.supplier_name || 'Supplier selected'}
+            {material?.material_name
+              ? `${material.material_name} -> ${supplier.supplier_name || 'Supplier selected'}`
+              : supplier.supplier_name || 'Supplier selected'}
           </p>
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1403,10 +1486,10 @@ function OmniProcurementCard({ data }) {
       {isAwaitingApproval && (
         <div className="border-t border-slate-100 bg-[#ffffff] px-4 py-4">
           <p className="text-sm font-semibold text-slate-900">
-            Ready for your approval
+            Manual approval required
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            Authorize this PO to continue with freight booking, or reject it to stop the pipeline.
+            This purchase order is only a draft. Authorize it to continue with freight booking, or reject it to stop the pipeline.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
