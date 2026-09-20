@@ -55,23 +55,74 @@ const COLOUR_PALETTE = [
   { name: 'Natural / Undyed',  hex: '#EDE0C8', base: 'Other' },
 ]
 
+function generateShades(baseName) {
+  const hues = {
+    red: 0, orange: 30, yellow: 60, green: 120, teal: 180,
+    blue: 215, navy: 230, purple: 270, pink: 330, brown: 25,
+    olive: 80, mint: 150
+  };
+  
+  const b = baseName.toLowerCase();
+  let hue = 215; // default to blue
+  let isAchromatic = false;
+  
+  if (b.includes('white') || b.includes('grey') || b.includes('gray') || b.includes('black')) {
+    isAchromatic = true;
+  } else {
+    for (const [k, v] of Object.entries(hues)) {
+      if (b.includes(k)) { hue = v; break; }
+    }
+  }
+
+  const shades = [];
+  const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const baseDisplay = b.split(' ').map(capitalize).join(' ');
+  
+  if (isAchromatic) {
+    for (let i = 0; i < 25; i++) {
+      const l = 98 - (i * 3.8); // 98 down to ~6.8
+      let name = `Monochrome Shade ${i+1}`;
+      if (i === 0) name = 'Pure White';
+      else if (i === 12) name = 'Medium Grey';
+      else if (i === 24) name = 'Deep Black';
+      else if (i < 5) name = `Light Grey ${i}`;
+      else if (i > 20) name = `Dark Grey ${i}`;
+      shades.push({ name, hex: `hsl(0, 0%, ${l.toFixed(1)}%)` });
+    }
+  } else {
+    const l_vals = [85, 70, 50, 35, 20];
+    const s_vals = [20, 40, 60, 80, 100];
+    const l_names = ['Very Light', 'Light', 'Medium', 'Dark', 'Very Dark'];
+    const s_names = ['Muted', 'Soft', 'Standard', 'Vibrant', 'Neon'];
+    
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 5; j++) {
+        let l = l_vals[i];
+        let s = s_vals[j];
+        if (b.includes('brown')) l = l * 0.7; // Brown needs to be darker
+        let name = `${l_names[i]} ${s_names[j]} ${baseDisplay}`;
+        shades.push({ name, hex: `hsl(${hue}, ${s}%, ${l}%)` });
+      }
+    }
+  }
+  return shades;
+}
+
 function ColorPalette({ onSelect, disabled, question }) {
   const [hovered, setHovered] = useState(null)
   
   let baseColor = null;
-  const match = (question || "").match(/shade of ([a-zA-Z]+)/i);
+  const match = (question || "").match(/shade of ([a-zA-Z\s]+)/i);
   if (match) {
-    baseColor = match[1].toLowerCase();
+    baseColor = match[1].trim();
   }
-  const colors = baseColor 
-    ? COLOUR_PALETTE.filter(c => c.base && c.base.toLowerCase() === baseColor)
-    : COLOUR_PALETTE;
-  const displayColors = colors.length > 0 ? colors : COLOUR_PALETTE;
+  
+  const displayColors = baseColor ? generateShades(baseColor) : COLOUR_PALETTE;
 
   return (
     <div className="mt-2">
       <p className="text-xs text-gray-400 mb-2">Click to select a colour:</p>
-      <div className="grid grid-cols-6 gap-1.5">
+      <div className={`grid gap-1.5 ${baseColor ? 'grid-cols-5' : 'grid-cols-6'}`}>
         {displayColors.map(c => (
           <button
             key={c.name}
