@@ -2,38 +2,44 @@
 // FACTORY SCENES
 // ------------------------------------------------------------
 // Each page shows the isometric render for its own part of the
-// garment operation. Drop the matching file into
-// public/factory/ and it appears automatically; until then the
-// layered gradient below stands in for it.
+// garment operation. The files live in src/assets and are
+// imported so the bundler hashes them and a missing one breaks
+// the build instead of the page.
 // ============================================================
+
+import overviewScene from '../assets/overview.png'
+import productionScene from '../assets/linePlanning.jpeg'
+import fabricScene from '../assets/fabricStock.jpeg'
+import supplierScene from '../assets/suplierIntel.jpeg'
+import forecastScene from '../assets/demandForecast.jpeg'
 
 export const SCENES = {
   overview: {
-    image: '/factory/overview.png',
+    image: overviewScene,
     aspect: '1672 / 560',
-    focus: 'center top',
+    focus: 'center 21%',
     tint: 'linear-gradient(160deg, #1e3a5f 0%, #1a2f4a 45%, #0f172a 100%)',
   },
   production: {
-    image: '/factory/production-floor.jpg',
+    image: productionScene,
     aspect: '5 / 2',
     focus: 'center 30%',
     tint: 'linear-gradient(160deg, #1e40af 0%, #1e3a5f 45%, #0f172a 100%)',
   },
   fabric: {
-    image: '/factory/fabric-store.jpg',
+    image: fabricScene,
     aspect: '8 / 3',
     focus: 'center 35%',
     tint: 'linear-gradient(160deg, #334155 0%, #1e293b 45%, #0f172a 100%)',
   },
   supplier: {
-    image: '/factory/supplier-yard.jpg',
+    image: supplierScene,
     aspect: '8 / 3',
     focus: 'center 35%',
     tint: 'linear-gradient(160deg, #2f3742 0%, #232c36 45%, #0f172a 100%)',
   },
   forecast: {
-    image: '/factory/planning-room.jpg',
+    image: forecastScene,
     aspect: '8 / 3',
     focus: 'center 35%',
     tint: 'linear-gradient(160deg, #1d4ed8 0%, #243b53 45%, #0f172a 100%)',

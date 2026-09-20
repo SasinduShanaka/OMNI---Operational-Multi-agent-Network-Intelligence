@@ -94,18 +94,23 @@ function InventoryPage() {
   if (loading) {
     return (
       <SceneStage scene="fabric">
-      <div className="p-8">
+      <div className="mx-auto w-full max-w-[1280px] px-5 pb-8 pt-5">
 
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Inventory agent
-        </h1>
+        <div className="inline-block rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-        <p className="text-sm text-slate-500 mt-1">
-          Real-time stock levels, thresholds and inventory analysis
-        </p>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            Inventory agent
+          </h1>
 
-        <div className="mt-10 text-slate-500">
-          Loading inventory...
+          <p className="mt-1 text-[11px] text-slate-500">
+            Real-time stock levels, thresholds and inventory analysis
+          </p>
+
+          <p className="mt-3 flex items-center gap-2 text-[12px] text-slate-500">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
+            Loading inventory...
+          </p>
+
         </div>
 
       </div>
