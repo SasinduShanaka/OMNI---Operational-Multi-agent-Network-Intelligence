@@ -19,8 +19,10 @@ class RunRequest(BaseModel):
     requirement_id:      int        = 2
     qty:                 float      = 300.0
     total_value:         float      = 78000.0
-    compliance_keywords: list[str]  = ["Organic Cotton", "Child-Labor Free"]
+    compliance_keywords: list[str]  = []
     destination:         str        = "Colombo, LK"
+    targeted_supplier:   str | None = None
+    po_details:          dict       = {}  # material_name, color_spec, unit from chatbot
 
 
 class ApproveRequest(BaseModel):
@@ -39,8 +41,94 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class GatherRequest(BaseModel):
+    conversation_history: list  # [{"role": "user"|"assistant", "content": "..."}]
+
+
+class FindSuppliersRequest(BaseModel):
+    material_type: str          # "fabric_mill" | "trim_vendor" | "dye_house"
+    qty: float = 300.0
+    color_spec: str = "any"
+    compliance_keywords: list = []
+    dimensions: dict = {}       # product-specific dimensions from gathering phase
+
+
+# ------------------------------------------------------------------
+# POST /supply-chain/gather
+# Multi-turn LLM-driven requirements collection
+# ------------------------------------------------------------------
+
+@supply_chain_router.post("/gather")
+async def gather_requirements_endpoint(request: GatherRequest):
+    """
+    Drive a multi-turn conversation to collect procurement requirements.
+    Returns either a follow-up question or completed requirements.
+    """
+    try:
+        from backend.supply_chain.supervisor import gather_requirements
+        result = gather_requirements(request.conversation_history)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------------------------------------------------
+# POST /supply-chain/find-suppliers
+# Query real DB for matching suppliers, return ranked list
+# ------------------------------------------------------------------
+
+@supply_chain_router.post("/find-suppliers")
+async def find_suppliers_endpoint(request: FindSuppliersRequest):
+    """
+    Return all suppliers for a given material_type from the ERP DB,
+    ranked by rating, with per-supplier individual pricing.
+    """
+    try:
+        import sys, os
+        DB_DIR = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
+        )
+        sys.path.insert(0, DB_DIR)
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
+        conn = get_erp_db_connection()
+        rows = conn.execute(
+            """
+            SELECT supplier_id, name, country, category, lead_time_days, rating,
+                   COALESCE(email, '') as email,
+                   COALESCE(price_per_unit, 260.0) as price_per_unit
+            FROM suppliers
+            WHERE category = ?
+            ORDER BY rating DESC
+            """,
+            (request.material_type,),
+        ).fetchall()
+        conn.close()
+
+        suppliers = []
+        min_price = None
+        min_lead  = None
+        for r in rows:
+            s = dict(r)
+            ppu = s["price_per_unit"]
+            s["estimated_total"] = round(request.qty * ppu, 2)
+            suppliers.append(s)
+            if min_price is None or ppu < min_price: min_price = ppu
+            if min_lead  is None or s["lead_time_days"] < min_lead: min_lead = s["lead_time_days"]
+
+        # Add badges: best_price & fastest
+        for s in suppliers:
+            s["badge_best_price"] = (s["price_per_unit"] == min_price)
+            s["badge_fastest"]    = (s["lead_time_days"] == min_lead)
+
+        return {"suppliers": suppliers, "total": len(suppliers)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ------------------------------------------------------------------
 # POST /supply-chain/chat
+
 # Natural language entry point — Supervisor LLM parses the message
 # and triggers the right sourcing scenario automatically.
 # ------------------------------------------------------------------
@@ -100,10 +188,17 @@ async def run_pipeline(request: RunRequest):
             total_value=request.total_value,
             compliance_keywords=request.compliance_keywords,
             destination=request.destination,
+            targeted_supplier=request.targeted_supplier,
+            po_details=request.po_details,
         )
 
         if result.get("status") == "failed":
-            raise HTTPException(status_code=422, detail=result.get("error", "Pipeline failed."))
+            # Return graceful failure so frontend can show error instead of crashing
+            return {
+                "status": "failed",
+                "error": result.get("error", "Pipeline failed."),
+                "run_id": None,
+            }
 
         supplier = result.get("supplier") or {}
         po       = result.get("po") or {}
@@ -161,7 +256,8 @@ async def track_shipment(shipment_id: int):
 @supply_chain_router.post("/approve/{run_id}")
 async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     """
-    Approve a pending PO and complete the pipeline (freight + tracking).
+    Approve a pending PO, complete the pipeline (freight + tracking),
+    and automatically send a PO email to the supplier via Brevo SMTP.
     """
     try:
         from backend.supply_chain.orchestrator import approve_pipeline
@@ -176,20 +272,85 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
 
         shipment = result.get("shipment") or {}
         tracking = result.get("tracking") or {}
+        po_info  = result.get("po") or {}
+        supplier_info = result.get("supplier") or {}
+
+        # ── Auto-send PO email to supplier via Brevo ──────────────────────────
+        email_result = {"sent": False, "error": "Supplier email not available"}
+        try:
+            import sys, os, json
+            DB_DIR = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
+            )
+            sys.path.insert(0, DB_DIR)
+            from db import get_erp_db_connection
+            conn = get_erp_db_connection()
+            po_id = po_info.get("po_id")
+            if po_id:
+                row = conn.execute("""
+                    SELECT po.po_id, po.qty, po.total_value, po.order_date,
+                           po.expected_delivery_date, po.approved_by, po.po_details,
+                           s.name AS supplier_name, s.country, s.email, s.price_per_unit
+                    FROM purchase_orders po
+                    LEFT JOIN suppliers s ON po.supplier_id = s.supplier_id
+                    WHERE po.po_id = ?
+                """, (po_id,)).fetchone()
+                conn.close()
+
+                if row:
+                    row_dict = dict(row)
+                    # Parse po_details JSON (material, colour, dimensions from chatbot)
+                    po_details = {}
+                    if row_dict.get("po_details"):
+                        try: po_details = json.loads(row_dict["po_details"])
+                        except Exception: pass
+
+                    po_data = {
+                        "po_id":                row_dict["po_id"],
+                        "supplier_name":        row_dict["supplier_name"] or supplier_info.get("supplier_name", "—"),
+                        "supplier_email":       row_dict["email"] or "",
+                        "country":              row_dict["country"] or supplier_info.get("country", ""),
+                        "qty":                  row_dict["qty"],
+                        "unit":                 po_details.get("unit", "units"),
+                        "total_value":          row_dict["total_value"],
+                        "price_per_unit":       row_dict["price_per_unit"] or 260.0,
+                        "order_date":           row_dict["order_date"] or "",
+                        "expected_delivery_date": row_dict["expected_delivery_date"] or "",
+                        "approved_by":          row_dict["approved_by"] or request.approved_by,
+                        "material_name":        po_details.get("material_name", "—"),
+                        "color_spec":           po_details.get("color_spec", "—"),
+                        "dimensions":           po_details.get("dimensions", {}),
+                        "compliance_keywords":  po_details.get("compliance_keywords", []),
+                        "destination":          po_details.get("destination", ""),
+                    }
+                    supplier_email = row_dict["email"] or ""
+                    if supplier_email:
+                        from backend.supply_chain.email_service import send_po_email
+                        email_result = send_po_email(po_data, supplier_email)
+                    else:
+                        email_result = {"sent": False, "error": "No email on file for this supplier"}
+                else:
+                    conn.close()
+        except Exception as email_err:
+            print(f"[Approve] Email step error: {email_err}")
+            email_result = {"sent": False, "error": str(email_err)}
 
         return {
-            "run_id":      run_id,
-            "status":      "completed",
-            "po_id":       result.get("po", {}).get("po_id"),
-            "approved_by": request.approved_by,
-            "shipment_id": shipment.get("shipment_id"),
-            "carrier":     shipment.get("carrier_name"),
-            "mode":        shipment.get("mode"),
-            "origin":      shipment.get("origin"),
-            "destination": shipment.get("destination"),
-            "eta":         shipment.get("eta"),
-            "track_status": tracking.get("status"),
-            "summary":     tracking.get("summary", ""),
+            "run_id":           run_id,
+            "status":           "completed",
+            "po_id":            po_info.get("po_id"),
+            "approved_by":      request.approved_by,
+            "shipment_id":      shipment.get("shipment_id"),
+            "carrier":          shipment.get("carrier_name"),
+            "mode":             shipment.get("mode"),
+            "origin":           shipment.get("origin"),
+            "destination":      shipment.get("destination"),
+            "eta":              shipment.get("eta"),
+            "track_status":     tracking.get("status"),
+            "summary":          tracking.get("summary", ""),
+            "email_sent":       email_result.get("sent", False),
+            "email_recipient":  email_result.get("recipient", ""),
+            "email_error":      email_result.get("error", "") if not email_result.get("sent") else "",
         }
 
     except HTTPException:
@@ -211,6 +372,87 @@ async def reject_po(run_id: str):
         "status":  "rejected",
         "message": "PO has been rejected. Pipeline stopped.",
     }
+
+
+# ------------------------------------------------------------------
+# POST /supply-chain/resend-po-email/{po_id}
+# Re-send PO email (available in PurchaseOrdersTab for approved POs)
+# ------------------------------------------------------------------
+
+class ResendEmailRequest(BaseModel):
+    notes: str = ""
+
+@supply_chain_router.post("/resend-po-email/{po_id}")
+async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailRequest()):
+    """Re-send the Purchase Order email to the supplier. For approved POs only."""
+    try:
+        import sys, os, json
+        DB_DIR = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
+        )
+        sys.path.insert(0, DB_DIR)
+        from db import ensure_erp_db_ready, get_erp_db_connection
+        ensure_erp_db_ready()
+        conn = get_erp_db_connection()
+        row = conn.execute("""
+            SELECT po.po_id, po.qty, po.total_value, po.order_date,
+                   po.expected_delivery_date, po.approved_by, po.po_details,
+                   s.name AS supplier_name, s.country, s.email, s.price_per_unit
+            FROM purchase_orders po
+            LEFT JOIN suppliers s ON po.supplier_id = s.supplier_id
+            WHERE po.po_id = ?
+        """, (po_id,)).fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"PO #{po_id} not found.")
+
+        row_dict = dict(row)
+        supplier_email = row_dict.get("email") or ""
+        if not supplier_email:
+            raise HTTPException(status_code=422, detail="No email address on file for this supplier. Update the supplier record first.")
+
+        po_details = {}
+        if row_dict.get("po_details"):
+            try: po_details = json.loads(row_dict["po_details"])
+            except Exception: pass
+
+        po_data = {
+            "po_id":                 row_dict["po_id"],
+            "supplier_name":         row_dict["supplier_name"] or "—",
+            "supplier_email":        supplier_email,
+            "country":               row_dict["country"] or "",
+            "qty":                   row_dict["qty"],
+            "unit":                  po_details.get("unit", "units"),
+            "total_value":           row_dict["total_value"],
+            "price_per_unit":        row_dict["price_per_unit"] or 260.0,
+            "order_date":            row_dict["order_date"] or "",
+            "expected_delivery_date": row_dict["expected_delivery_date"] or "",
+            "approved_by":           row_dict["approved_by"] or "Human Manager",
+            "material_name":         po_details.get("material_name", "—"),
+            "color_spec":            po_details.get("color_spec", "—"),
+            "dimensions":            po_details.get("dimensions", {}),
+            "compliance_keywords":   po_details.get("compliance_keywords", []),
+            "destination":           po_details.get("destination", ""),
+        }
+
+        from backend.supply_chain.email_service import send_po_email
+        result = send_po_email(po_data, supplier_email, notes=request.notes)
+
+        if not result.get("sent"):
+            raise HTTPException(status_code=503, detail=result.get("error", "Email sending failed."))
+
+        return {
+            "status":    "sent",
+            "po_id":     po_id,
+            "recipient": supplier_email,
+            "message":   f"PO #{po_id:04d} successfully re-sent to {supplier_email}",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ------------------------------------------------------------------
