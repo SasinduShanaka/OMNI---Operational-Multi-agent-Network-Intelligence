@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { SceneStage } from './FactoryScene'
 
@@ -8,6 +8,21 @@ function InventoryPage() {
   const [inventory, setInventory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [sortBy, setSortBy] = useState('risk')
+  const [showOnlyLowStock, setShowOnlyLowStock] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [formData, setFormData] = useState({
+    material_code: '',
+    material_name: '',
+    current_stock: '',
+    reorder_level: '',
+    unit: 'meters',
+    classification: 'B',
+  })
 
   // --------------------------------------------------
   // Get inventory from backend
@@ -62,6 +77,174 @@ function InventoryPage() {
       ? ((healthyItems / totalSKUs) * 100).toFixed(1)
       : '0.0'
 
+  const totalShortage = lowStockItems.reduce(
+    (sum, item) => sum + Number(item.shortage || 0),
+    0
+  )
+
+  const uniqueUnits = Array.from(
+    new Set(inventory.map((item) => item.unit).filter(Boolean))
+  )
+
+  const filteredInventory = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+
+    return inventory
+      .filter((item) => {
+        const matchesSearch =
+          !query ||
+          item.material_name?.toLowerCase().includes(query) ||
+          item.material_code?.toLowerCase().includes(query)
+
+        const matchesStatus =
+          statusFilter === 'ALL' || item.status === statusFilter
+
+        const matchesLowStock =
+          !showOnlyLowStock || item.status === 'LOW_STOCK' || Number(item.current_stock) === 0
+
+        return matchesSearch && matchesStatus && matchesLowStock
+      })
+      .sort((a, b) => {
+        if (sortBy === 'name') {
+          return String(a.material_name).localeCompare(String(b.material_name))
+        }
+
+        if (sortBy === 'stock') {
+          return Number(a.current_stock || 0) - Number(b.current_stock || 0)
+        }
+
+        if (sortBy === 'shortage') {
+          return Number(b.shortage || 0) - Number(a.shortage || 0)
+        }
+
+        const riskRank = {
+          OUT_OF_STOCK: 0,
+          LOW_STOCK: 1,
+          STOCK_OK: 2,
+        }
+
+        return (riskRank[a.status] ?? 3) - (riskRank[b.status] ?? 3)
+      })
+  }, [inventory, searchTerm, statusFilter, sortBy, showOnlyLowStock])
+
+  function resetFilters() {
+    setSearchTerm('')
+    setStatusFilter('ALL')
+    setSortBy('risk')
+    setShowOnlyLowStock(false)
+  }
+
+  function updateFormField(field, value) {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  function resetAddForm() {
+    setFormData({
+      material_code: '',
+      material_name: '',
+      current_stock: '',
+      reorder_level: '',
+      unit: 'meters',
+      classification: 'B',
+    })
+    setFormError('')
+  }
+
+  async function submitInventoryItem(event) {
+    event.preventDefault()
+    setFormError('')
+
+    if (!formData.material_name.trim()) {
+      setFormError('Material name is required.')
+      return
+    }
+
+    if (formData.current_stock === '' || formData.reorder_level === '') {
+      setFormError('Current stock and reorder level are required.')
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/inventory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          material_code: formData.material_code.trim() || null,
+          material_name: formData.material_name.trim(),
+          current_stock: Number(formData.current_stock),
+          reorder_level: Number(formData.reorder_level),
+          unit: formData.unit,
+          classification: formData.classification,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data?.detail || 'Failed to save material')
+      }
+
+      await loadInventory()
+      setSearchTerm(data.item?.material_name || formData.material_name)
+      setStatusFilter('ALL')
+      setShowOnlyLowStock(false)
+      setShowAddForm(false)
+      resetAddForm()
+    } catch (err) {
+      console.error(err)
+      setFormError(err.message || 'Could not save inventory material.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function exportCsv() {
+    const headers = [
+      'Material Code',
+      'Material Name',
+      'Status',
+      'Current Stock',
+      'Reorder Level',
+      'Shortage',
+      'Unit',
+      'Recommendation',
+    ]
+
+    const rows = filteredInventory.map((item) => [
+      item.material_code,
+      item.material_name,
+      item.status,
+      item.current_stock,
+      item.reorder_level,
+      item.shortage,
+      item.unit,
+      item.recommendation,
+    ])
+
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value ?? '').replaceAll('"', '""')}"`)
+          .join(',')
+      )
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `inventory-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   // --------------------------------------------------
   // Status helper
   // --------------------------------------------------
@@ -94,18 +277,23 @@ function InventoryPage() {
   if (loading) {
     return (
       <SceneStage scene="fabric">
-      <div className="p-8">
+      <div className="mx-auto w-full max-w-[1280px] px-5 pb-8 pt-5">
 
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Inventory agent
-        </h1>
+        <div className="inline-block rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-        <p className="text-sm text-slate-500 mt-1">
-          Real-time stock levels, thresholds and inventory analysis
-        </p>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            Inventory agent
+          </h1>
 
-        <div className="mt-10 text-slate-500">
-          Loading inventory...
+          <p className="mt-1 text-[11px] text-slate-500">
+            Real-time stock levels, thresholds and inventory analysis
+          </p>
+
+          <p className="mt-3 flex items-center gap-2 text-[12px] text-slate-500">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
+            Loading inventory...
+          </p>
+
         </div>
 
       </div>
@@ -144,22 +332,43 @@ function InventoryPage() {
 
           </div>
 
-          <button
-            className="
-              px-4
-              py-2.5
-              rounded-xl
-              bg-[#1d4ed8]
-              hover:bg-[#1e40af]
-              text-white
-              text-sm
-              font-medium
-              transition
-              shadow-[0_10px_24px_rgba(29,78,216,0.35)]
-            "
-          >
-            + Manual reorder
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowAddForm((current) => !current)}
+              className="
+                px-4
+                py-2.5
+                rounded-xl
+                bg-slate-900
+                hover:bg-slate-700
+                text-white
+                text-sm
+                font-medium
+                transition
+                shadow-[0_10px_24px_rgba(15,23,42,0.2)]
+              "
+            >
+              Add material
+            </button>
+
+            <button
+              onClick={() => setShowOnlyLowStock(true)}
+              className="
+                px-4
+                py-2.5
+                rounded-xl
+                bg-[#1d4ed8]
+                hover:bg-[#1e40af]
+                text-white
+                text-sm
+                font-medium
+                transition
+                shadow-[0_10px_24px_rgba(29,78,216,0.35)]
+              "
+            >
+              View reorder needs
+            </button>
+          </div>
 
       </div>
 
@@ -177,6 +386,12 @@ function InventoryPage() {
             <div className="rounded-xl bg-emerald-50 px-3 py-2 border border-emerald-100">
               <div className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">Healthy</div>
               <div className="mt-1 text-lg font-semibold text-emerald-700">{healthyItems}</div>
+            </div>
+            <div className="rounded-xl bg-amber-50 px-3 py-2 border border-amber-100">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-amber-700">Shortage</div>
+              <div className="mt-1 text-lg font-semibold text-amber-700">
+                {totalShortage.toLocaleString()}
+              </div>
             </div>
           </div>
         </div>
@@ -202,6 +417,130 @@ function InventoryPage() {
           {error}
         </div>
 
+      )}
+
+
+      {/* ================================================ */}
+      {/* ADD MATERIAL */}
+      {/* ================================================ */}
+
+      {showAddForm && (
+        <form
+          onSubmit={submitInventoryItem}
+          className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_25px_rgba(15,23,42,0.04)]"
+        >
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                Inventory entry
+              </p>
+              <h2 className="mt-1 text-base font-semibold text-slate-900">
+                Add or update material
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddForm(false)
+                resetAddForm()
+              }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <label className="xl:col-span-2">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Material name</span>
+              <input
+                value={formData.material_name}
+                onChange={(event) => updateFormField('material_name', event.target.value)}
+                placeholder="Red Cotton Fabric"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Code</span>
+              <input
+                value={formData.material_code}
+                onChange={(event) => updateFormField('material_code', event.target.value)}
+                placeholder="Auto"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm uppercase text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Current stock</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.current_stock}
+                onChange={(event) => updateFormField('current_stock', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Reorder level</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formData.reorder_level}
+                onChange={(event) => updateFormField('reorder_level', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Unit</span>
+              <select
+                value={formData.unit}
+                onChange={(event) => updateFormField('unit', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="meters">meters</option>
+                <option value="pieces">pieces</option>
+                <option value="spools">spools</option>
+                <option value="rolls">rolls</option>
+                <option value="kg">kg</option>
+                <option value="units">units</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Class</span>
+              <select
+                value={formData.classification}
+                onChange={(event) => updateFormField('classification', event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+              </select>
+            </label>
+          </div>
+
+          {formError && (
+            <p className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+              {formError}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-xl bg-[#1d4ed8] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save material'}
+            </button>
+          </div>
+        </form>
       )}
 
 
@@ -314,6 +653,77 @@ function InventoryPage() {
 
 
       {/* ================================================ */}
+      {/* CONTROLS */}
+      {/* ================================================ */}
+
+      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto_auto]">
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search material or code..."
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#1d4ed8] focus:bg-white focus:ring-2 focus:ring-blue-100"
+          />
+
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="ALL">All statuses</option>
+            <option value="LOW_STOCK">Low stock</option>
+            <option value="OUT_OF_STOCK">Out of stock</option>
+            <option value="STOCK_OK">Healthy</option>
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-[#1d4ed8] focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="risk">Sort by risk</option>
+            <option value="shortage">Sort by shortage</option>
+            <option value="stock">Sort by stock</option>
+            <option value="name">Sort by name</option>
+          </select>
+
+          <button
+            onClick={() => setShowOnlyLowStock((current) => !current)}
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+              showOnlyLowStock
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            Reorder only
+          </button>
+
+          <button
+            onClick={exportCsv}
+            disabled={filteredInventory.length === 0}
+            className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Export CSV
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>
+            Showing {filteredInventory.length} of {inventory.length} materials
+            {uniqueUnits.length > 0 ? ` across ${uniqueUnits.join(', ')}` : ''}
+          </span>
+          <button
+            onClick={resetFilters}
+            className="font-medium text-[#1d4ed8] transition hover:text-[#1e40af]"
+          >
+            Reset filters
+          </button>
+        </div>
+      </div>
+
+
+      {/* ================================================ */}
       {/* REORDER WATCHLIST */}
       {/* ================================================ */}
 
@@ -333,7 +743,7 @@ function InventoryPage() {
           </h2>
 
           <span className="text-[11px] text-slate-400">
-            {inventory.length} items
+            {filteredInventory.length} items
           </span>
 
         </div>
@@ -343,7 +753,7 @@ function InventoryPage() {
 
         <div className="
           grid
-          grid-cols-7
+          grid-cols-8
           items-center
           gap-3
           border-y
@@ -370,6 +780,8 @@ function InventoryPage() {
 
           <span>REORDER PT.</span>
 
+          <span>SHORTAGE</span>
+
           <span>STATUS</span>
 
         </div>
@@ -377,7 +789,7 @@ function InventoryPage() {
 
         {/* Inventory rows */}
 
-        {inventory.map((item) => {
+        {filteredInventory.map((item) => {
 
           const status = getStatus(item)
 
@@ -387,7 +799,7 @@ function InventoryPage() {
               key={item.material_code}
               className="
                 grid
-                grid-cols-7
+                grid-cols-8
                 items-center
                 gap-3
                 border-b
@@ -440,14 +852,23 @@ function InventoryPage() {
               {/* On hand */}
 
               <div className="tabular-nums text-slate-900">
-                {item.current_stock?.toLocaleString()}
+                {item.current_stock?.toLocaleString()} {item.unit}
               </div>
 
 
               {/* Reorder point */}
 
               <div className="tabular-nums text-slate-500">
-                {item.reorder_level?.toLocaleString()}
+                {item.reorder_level?.toLocaleString()} {item.unit}
+              </div>
+
+
+              {/* Shortage */}
+
+              <div className={`tabular-nums ${item.shortage > 0 ? 'font-medium text-red-600' : 'text-slate-400'}`}>
+                {item.shortage > 0
+                  ? `${item.shortage?.toLocaleString()} ${item.unit}`
+                  : '-'}
               </div>
 
 
@@ -480,10 +901,12 @@ function InventoryPage() {
 
         {/* Empty inventory */}
 
-        {inventory.length === 0 && !error && (
+        {filteredInventory.length === 0 && !error && (
 
           <div className="p-10 text-center text-slate-400">
-            No inventory items found.
+            {inventory.length === 0
+              ? 'No inventory items found.'
+              : 'No materials match the current filters.'}
           </div>
 
         )}

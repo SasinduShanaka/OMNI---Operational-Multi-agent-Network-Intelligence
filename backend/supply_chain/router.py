@@ -262,7 +262,7 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     try:
         from backend.supply_chain.orchestrator import approve_pipeline
 
-        result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by)
+        result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by, send_email=False)
 
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])
@@ -605,7 +605,17 @@ async def manual_approve_po(po_id: int):
         )
         conn.commit()
         conn.close()
-        return {"status": "success", "po_id": po_id}
+
+        from backend.supply_chain.po_email import send_approved_po_email
+        email_result = send_approved_po_email(po_id, "Human Manager")
+
+        return {
+            "status": "success",
+            "po_id": po_id,
+            "email_sent": email_result.get("sent", False),
+            "email_recipient": email_result.get("recipient", ""),
+            "email_error": email_result.get("error", "") if not email_result.get("sent") else "",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
