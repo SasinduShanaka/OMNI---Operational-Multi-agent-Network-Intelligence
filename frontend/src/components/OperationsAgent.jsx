@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supplyChainApi } from '../api/supplyChainApi'
 import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
 import ManagementReport from './ManagementReport'
@@ -31,9 +31,108 @@ function compactWorkflow(workflow) {
   return compacted
 }
 
+function latestUserText(messages) {
+  return [...messages]
+    .reverse()
+    .find((message) => message.type === 'user')
+    ?.text
+    ?.toLowerCase() || ''
+}
+
+function getProcessingWorkflow(messages) {
+  const latestUserMessage = latestUserText(messages)
+
+  const step = (agent, detail) => ({ agent, detail })
+
+  const startsWithOperations = [
+    step('Operations Agent', 'understanding your request'),
+  ]
+
+  if (/\b(report|pdf|download|summary)\b/.test(latestUserMessage)) {
+    return [
+      ...startsWithOperations,
+      step('Report Agent', 'preparing your report'),
+    ]
+  }
+
+  if (/\b(order|supplier|source|procure|purchase|replenish|approve|authorize)\b/.test(latestUserMessage)) {
+    if (/\b(low stock|low inventory|reorder|shortage|shortages)\b/.test(latestUserMessage)) {
+      return [
+        ...startsWithOperations,
+        step('Inventory Agent', 'checking low-stock materials'),
+        step('Supply Chain Agent', 'coordinating supplier work'),
+        step('Sourcing Agent', 'matching suppliers'),
+        step('Purchasing Agent', 'drafting purchase order details'),
+      ]
+    }
+
+    return [
+      ...startsWithOperations,
+      step('Supply Chain Agent', 'coordinating supplier work'),
+      step('Sourcing Agent', 'matching suppliers'),
+      step('Purchasing Agent', 'drafting purchase order details'),
+    ]
+  }
+
+  if (/\b(produce|production|manufacture|capacity|line|bottleneck|feasible|make)\b/.test(latestUserMessage)) {
+    return [
+      ...startsWithOperations,
+      step('Forecast Agent', 'checking demand signals'),
+      step('Production Agent', 'checking capacity'),
+      step('Inventory Agent', 'checking material constraints'),
+      step('Supply Chain Agent', 'checking procurement risk'),
+    ]
+  }
+
+  if (/\b(forecast|forcast|predict|demand|outlook)\b/.test(latestUserMessage)) {
+    return [
+      ...startsWithOperations,
+      step('Forecast Agent', 'checking demand history'),
+    ]
+  }
+
+  if (/\b(stock|inventory|material|fabric|shortage|reorder)\b/.test(latestUserMessage)) {
+    return [
+      ...startsWithOperations,
+      step('Inventory Agent', 'checking stock levels'),
+    ]
+  }
+
+  return [
+    ...startsWithOperations,
+    step('Operations Agent', 'routing your request'),
+  ]
+}
+
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
+  const [processingStepIndex, setProcessingStepIndex] = useState(0)
   const { draft, messages, isAsking, error } = chatState
+  const processingWorkflow = useMemo(() => getProcessingWorkflow(messages), [messages])
+  const processingAgent = processingWorkflow[
+    Math.min(processingStepIndex, processingWorkflow.length - 1)
+  ] || processingWorkflow[0]
+
+  useEffect(() => {
+    if (!isAsking) {
+      setProcessingStepIndex(0)
+      return undefined
+    }
+
+    setProcessingStepIndex(0)
+
+    if (processingWorkflow.length <= 1) {
+      return undefined
+    }
+
+    const interval = window.setInterval(() => {
+      setProcessingStepIndex((current) => (
+        current >= processingWorkflow.length - 1 ? current : current + 1
+      ))
+    }, 1200)
+
+    return () => window.clearInterval(interval)
+  }, [isAsking, processingWorkflow])
 
   function updateChatState(patch) {
     setChatState((previous) => ({
@@ -242,11 +341,39 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                   Ask Omni
                 </p>
 
-                <div className="inline-flex items-center gap-2 bg-[#f1f5f9] text-[#475569] rounded-xl px-4 py-3 text-sm border border-[#cbd5e1]">
+                <div className="inline-flex min-w-[340px] flex-col gap-3 rounded-xl border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm text-[#475569] shadow-sm">
 
-                  <span className="w-2 h-2 rounded-full bg-[#3b82f6] animate-pulse"></span>
+                  <span className="flex items-center gap-3">
+                    <span className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                      <span className="absolute h-5 w-5 animate-spin rounded-full border-2 border-[#bfdbfe] border-t-[#2563eb]" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
+                    </span>
 
-                  Checking factory data and supplier status...
+                    <span className="flex flex-col leading-tight">
+                      <span className="font-semibold text-slate-700">
+                        {processingAgent.agent}
+                      </span>
+                      <span className="mt-0.5 text-xs text-slate-500">
+                        {processingAgent.detail}...
+                      </span>
+                    </span>
+                  </span>
+
+                  {processingWorkflow.length > 1 && (
+                    <span className="flex flex-wrap items-center gap-1.5 pl-8">
+                      {processingWorkflow.map((step, index) => (
+                        <span
+                          key={`${step.agent}-${index}`}
+                          className={`h-1.5 w-6 rounded-full transition-colors ${
+                            index <= processingStepIndex
+                              ? 'bg-[#2563eb]'
+                              : 'bg-[#cbd5e1]'
+                          }`}
+                          title={step.agent}
+                        />
+                      ))}
+                    </span>
+                  )}
 
                 </div>
 
