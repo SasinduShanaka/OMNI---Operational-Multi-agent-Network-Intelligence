@@ -64,7 +64,7 @@ def analyze_demand_records(sku, records):
             if not math.isfinite(quantity) or quantity < 0:
                 raise ValueError("Invalid quantity")
         except (KeyError, TypeError, ValueError, OverflowError):
-            issue("invalid_quantity", "error", "Quantity must be a finite nonnegative number. This record is excluded.", [identifier])
+            issue("invalid_quantity", "error", "Quantity must be a finite nonnegative number. This record is excluded.", [identifier], observed.strftime('%Y-%m') if observed is not None else None)
             invalid_ids.add(index)
         if index in invalid_ids:
             continue
@@ -239,6 +239,7 @@ def _save_audit(result: dict[str, Any]) -> bool:
             "agent": "Demand Forecast Agent", "action": "Demand forecast generated",
             "message_type": "PREDICTION", "sku": result["sku"], "forecast": result["forecast"],
             "forecast_period": result["forecast_period"], "trend": result["trend"],
+            "predictions": result.get("predictions", []),
             "model": result["model"], "smoothing_parameters": result["smoothing_parameters"],
             "accuracy": result["accuracy"],
             "timestamp": datetime.now(timezone.utc),
