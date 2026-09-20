@@ -1,0 +1,56 @@
+{
+  "SOP-PR-02-line-changeover.md": {
+    "pdf": "SOP-PR-02-line-changeover.pdf",
+    "pages": {
+      "Why changeover time is protected capacity": 1,
+      "Standard changeover durations": 1,
+      "Changeover and reallocation decisions": 1,
+      "Approval": 1
+    }
+  },
+  "SOP-PR-03-fabric-relaxation-cutting.md": {
+    "pdf": "SOP-PR-03-fabric-relaxation-cutting.pdf",
+    "pages": {
+      "Relaxation before spreading": 1,
+      "Spreading and shrinkage allowance": 1,
+      "Cutting tolerance and yield": 1,
+      "Bundle release to the line": 1
+    }
+  },
+  "SOP-PR-04-line-balancing-capacity.md": {
+    "pdf": "SOP-PR-04-line-balancing-capacity.pdf",
+    "pages": {
+      "Standard allowed minutes by style": 1,
+      "The 85 percent utilisation rule": 1,
+      "Efficiency ramp for new styles": 1,
+      "Overtime policy": 1
+    }
+  },
+  "SOP-QA-01-aql-sampling.md": {
+    "pdf": "SOP-QA-01-aql-sampling.pdf",
+    "pages": {
+      "Purpose and scope": 1,
+      "Sample size by lot size": 1,
+      "Inspection timing": 1,
+      "Failed lots": 1
+    }
+  },
+  "SOP-QA-05-defect-classification.md": {
+    "pdf": "SOP-QA-05-defect-classification.pdf",
+    "pages": {
+      "Defect classes": 1,
+      "Common defects by construction": 1,
+      "Rework rules": 1,
+      "Metal detection": 1
+    }
+  },
+  "SOP-QA-06-finishing-packing.md": {
+    "pdf": "SOP-QA-06-finishing-packing.pdf",
+    "pages": {
+      "Pressing and finishing sequence": 1,
+      "Measurement checks": 1,
+      "Packing ratios and cartons": 1,
+      "Shipping documentation hold": 1
+    }
+  }
+}

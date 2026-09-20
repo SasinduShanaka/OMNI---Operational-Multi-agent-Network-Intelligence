@@ -1,0 +1,47 @@
+{
+  "buyer-halden-retail-brief.md": {
+    "pdf": "buyer-halden-retail-brief.pdf",
+    "pages": {
+      "Account overview": 1,
+      "Demand pattern": 1,
+      "Denim programme": 1,
+      "Quality and compliance requirements": 1
+    }
+  },
+  "buyer-meridian-sportswear-notes.md": {
+    "pdf": "buyer-meridian-sportswear-notes.pdf",
+    "pages": {
+      "Account overview": 1,
+      "Growth trajectory": 1,
+      "Product direction": 1,
+      "Risk notes": 1
+    }
+  },
+  "buyer-northwind-apparel-calendar.md": {
+    "pdf": "buyer-northwind-apparel-calendar.pdf",
+    "pages": {
+      "Account overview": 1,
+      "Order windows": 1,
+      "Promotion behaviour": 1,
+      "Service expectations": 1
+    }
+  },
+  "market-cotton-and-raw-material-outlook.md": {
+    "pdf": "market-cotton-and-raw-material-outlook.pdf",
+    "pages": {
+      "Cotton price direction": 1,
+      "Effect on buyer behaviour": 1,
+      "Polyester and performance fabrics": 1,
+      "Fleece and winter fabrics": 1
+    }
+  },
+  "seasonal-demand-calendar.md": {
+    "pdf": "seasonal-demand-calendar.pdf",
+    "pages": {
+      "Export shipping windows": 1,
+      "Local and regional demand": 1,
+      "Category seasonality summary": 1,
+      "Reading a forecast against this calendar": 1
+    }
+  }
+}

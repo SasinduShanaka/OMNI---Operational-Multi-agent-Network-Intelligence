@@ -319,3 +319,9 @@ backend/.env
 
 # Local duplicate copy of the repo — never commit
 uniSlot/
+
+# MCP server config — contains API keys, never commit
+.mcp.json
+
+# RAG vector store (rebuild with: python knowledge/build_index.py)
+knowledge/chroma_store/
