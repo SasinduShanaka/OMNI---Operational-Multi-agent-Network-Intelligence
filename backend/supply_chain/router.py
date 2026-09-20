@@ -262,78 +262,19 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     try:
         from backend.supply_chain.orchestrator import approve_pipeline
 
-        result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by, send_email=False)
-
-        if "error" in result:
-            raise HTTPException(status_code=404, detail=result["error"])
+        result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by)
 
         if result.get("status") == "failed":
             raise HTTPException(status_code=422, detail=result.get("error", "Pipeline failed after approval."))
 
+        if result.get("error"):
+            raise HTTPException(status_code=409, detail=result["error"])
+
         shipment = result.get("shipment") or {}
         tracking = result.get("tracking") or {}
         po_info  = result.get("po") or {}
-        supplier_info = result.get("supplier") or {}
 
         # ── Auto-send PO email to supplier via Brevo ──────────────────────────
-        email_result = {"sent": False, "error": "Supplier email not available"}
-        try:
-            import sys, os, json
-            DB_DIR = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
-            )
-            sys.path.insert(0, DB_DIR)
-            from db import get_erp_db_connection
-            conn = get_erp_db_connection()
-            po_id = po_info.get("po_id")
-            if po_id:
-                row = conn.execute("""
-                    SELECT po.po_id, po.qty, po.total_value, po.order_date,
-                           po.expected_delivery_date, po.approved_by, po.po_details,
-                           s.name AS supplier_name, s.country, s.email, s.price_per_unit
-                    FROM purchase_orders po
-                    LEFT JOIN suppliers s ON po.supplier_id = s.supplier_id
-                    WHERE po.po_id = ?
-                """, (po_id,)).fetchone()
-                conn.close()
-
-                if row:
-                    row_dict = dict(row)
-                    # Parse po_details JSON (material, colour, dimensions from chatbot)
-                    po_details = {}
-                    if row_dict.get("po_details"):
-                        try: po_details = json.loads(row_dict["po_details"])
-                        except Exception: pass
-
-                    po_data = {
-                        "po_id":                row_dict["po_id"],
-                        "supplier_name":        row_dict["supplier_name"] or supplier_info.get("supplier_name", "—"),
-                        "supplier_email":       row_dict["email"] or "",
-                        "country":              row_dict["country"] or supplier_info.get("country", ""),
-                        "qty":                  row_dict["qty"],
-                        "unit":                 po_details.get("unit", "units"),
-                        "total_value":          row_dict["total_value"],
-                        "price_per_unit":       row_dict["price_per_unit"] or 260.0,
-                        "order_date":           row_dict["order_date"] or "",
-                        "expected_delivery_date": row_dict["expected_delivery_date"] or "",
-                        "approved_by":          row_dict["approved_by"] or request.approved_by,
-                        "material_name":        po_details.get("material_name", "—"),
-                        "color_spec":           po_details.get("color_spec", "—"),
-                        "dimensions":           po_details.get("dimensions", {}),
-                        "compliance_keywords":  po_details.get("compliance_keywords", []),
-                        "destination":          po_details.get("destination", ""),
-                    }
-                    supplier_email = row_dict["email"] or ""
-                    if supplier_email:
-                        from backend.supply_chain.email_service import send_po_email
-                        email_result = send_po_email(po_data, supplier_email)
-                    else:
-                        email_result = {"sent": False, "error": "No email on file for this supplier"}
-                else:
-                    conn.close()
-        except Exception as email_err:
-            print(f"[Approve] Email step error: {email_err}")
-            email_result = {"sent": False, "error": str(email_err)}
 
         return {
             "run_id":           run_id,
@@ -348,9 +289,9 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
             "eta":              shipment.get("eta"),
             "track_status":     tracking.get("status"),
             "summary":          tracking.get("summary", ""),
-            "email_sent":       email_result.get("sent", False),
-            "email_recipient":  email_result.get("recipient", ""),
-            "email_error":      email_result.get("error", "") if not email_result.get("sent") else "",
+            "email_sent":       result.get("email_sent", False),
+            "email_recipient":  result.get("email_recipient", ""),
+            "email_error":      result.get("email_error", ""),
         }
 
     except HTTPException:
@@ -367,11 +308,11 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
 @supply_chain_router.post("/reject/{run_id}")
 async def reject_po(run_id: str):
     """Mark a pipeline as rejected by the human manager."""
-    return {
-        "run_id":  run_id,
-        "status":  "rejected",
-        "message": "PO has been rejected. Pipeline stopped.",
-    }
+    from backend.supply_chain.orchestrator import reject_pipeline
+    result = await reject_pipeline(run_id)
+    if result.get("error"):
+        raise HTTPException(status_code=409, detail=result["error"])
+    return result
 
 
 # ------------------------------------------------------------------
@@ -395,7 +336,7 @@ async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailR
         ensure_erp_db_ready()
         conn = get_erp_db_connection()
         row = conn.execute("""
-            SELECT po.po_id, po.qty, po.total_value, po.order_date,
+            SELECT po.po_id, po.qty, po.total_value, po.order_date, po.status,
                    po.expected_delivery_date, po.approved_by, po.po_details,
                    s.name AS supplier_name, s.country, s.email, s.price_per_unit
             FROM purchase_orders po
@@ -408,6 +349,8 @@ async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailR
             raise HTTPException(status_code=404, detail=f"PO #{po_id} not found.")
 
         row_dict = dict(row)
+        if row_dict["status"] != "approved":
+            raise HTTPException(status_code=409, detail="Approve the purchase order before sending its email.")
         supplier_email = row_dict.get("email") or ""
         if not supplier_email:
             raise HTTPException(status_code=422, detail="No email address on file for this supplier. Update the supplier record first.")
@@ -467,7 +410,7 @@ async def pipeline_status(run_id: str):
         from backend.supply_chain.orchestrator import get_pipeline_state
 
         result = await get_pipeline_state(run_id)
-        if "error" in result:
+        if result.get("error") and not result.get("status"):
             raise HTTPException(status_code=404, detail=result["error"])
         return result
     except HTTPException:
@@ -590,6 +533,10 @@ async def delete_supplier(supplier_id: int):
 @supply_chain_router.put("/purchase-orders/{po_id}/approve")
 async def manual_approve_po(po_id: int):
     """Directly approve a PO in the database."""
+    from backend.supply_chain.run_store import load_run
+    saved = load_run(po_id=po_id)
+    if saved:
+        return await approve_po(saved["run_id"])
     try:
         import sys, os
         DB_DIR = os.path.abspath(
@@ -599,12 +546,15 @@ async def manual_approve_po(po_id: int):
         from db import ensure_erp_db_ready, get_erp_db_connection
         ensure_erp_db_ready()
         conn = get_erp_db_connection()
-        conn.execute(
-            "UPDATE purchase_orders SET status = 'approved', approved_by = 'Human Manager' WHERE po_id = ?",
+        updated = conn.execute(
+            "UPDATE purchase_orders SET status = 'approved', approved_by = 'Human Manager' WHERE po_id = ? AND status IN ('draft', 'pending_approval')",
             (po_id,)
         )
         conn.commit()
         conn.close()
+
+        if updated.rowcount != 1:
+            raise HTTPException(status_code=409, detail="PO is not awaiting approval. Refresh the purchase orders.")
 
         from backend.supply_chain.po_email import send_approved_po_email
         email_result = send_approved_po_email(po_id, "Human Manager")
@@ -616,12 +566,18 @@ async def manual_approve_po(po_id: int):
             "email_recipient": email_result.get("recipient", ""),
             "email_error": email_result.get("error", "") if not email_result.get("sent") else "",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @supply_chain_router.put("/purchase-orders/{po_id}/reject")
 async def manual_reject_po(po_id: int):
     """Directly reject a PO in the database."""
+    from backend.supply_chain.run_store import load_run
+    saved = load_run(po_id=po_id)
+    if saved:
+        return await reject_po(saved["run_id"])
     try:
         import sys, os
         DB_DIR = os.path.abspath(
@@ -631,13 +587,17 @@ async def manual_reject_po(po_id: int):
         from db import ensure_erp_db_ready, get_erp_db_connection
         ensure_erp_db_ready()
         conn = get_erp_db_connection()
-        conn.execute(
-            "UPDATE purchase_orders SET status = 'rejected' WHERE po_id = ?",
+        updated = conn.execute(
+            "UPDATE purchase_orders SET status = 'rejected' WHERE po_id = ? AND status IN ('draft', 'pending_approval')",
             (po_id,)
         )
         conn.commit()
         conn.close()
+        if updated.rowcount != 1:
+            raise HTTPException(status_code=409, detail="PO is not awaiting approval. Refresh the purchase orders.")
         return {"status": "success", "po_id": po_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

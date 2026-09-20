@@ -102,6 +102,7 @@ class AskRequest(BaseModel):
     message: str
     session_id: str | None = None
     payload: dict | None = None
+    request_id: str | None = None
 
 
 class MaterialRequest(BaseModel):
@@ -332,7 +333,7 @@ def select_pending_approval(message: str, pending: list[dict]):
 
 
 def handle_approval_followup(session_id: str, request: AskRequest):
-    from backend.supply_chain.orchestrator import approve_pipeline
+    from backend.supply_chain.orchestrator import approve_pipeline, reject_pipeline
     import asyncio
 
     context = operations_contexts.get(session_id, {})
@@ -359,7 +360,11 @@ def handle_approval_followup(session_id: str, request: AskRequest):
     for item in selected:
         try:
             if rejecting:
-                completed.append({**item, "status": "rejected"})
+                rejected = asyncio.run(reject_pipeline(item["run_id"]))
+                if rejected.get("error"):
+                    failed.append({**item, "error": rejected["error"]})
+                else:
+                    completed.append({**item, "approval": rejected, "status": "rejected"})
             else:
                 approved = asyncio.run(approve_pipeline(item["run_id"], approved_by="Human Manager"))
                 if approved.get("error") or approved.get("status") == "failed":
@@ -379,9 +384,9 @@ def handle_approval_followup(session_id: str, request: AskRequest):
     answer = f"I {verb} {len(completed)} purchase order(s)."
     if completed and not rejecting:
         shipments = [
-            item.get("approval", {}).get("shipment_id")
+            (item.get("approval", {}).get("shipment") or {}).get("shipment_id")
             for item in completed
-            if item.get("approval", {}).get("shipment_id")
+            if (item.get("approval", {}).get("shipment") or {}).get("shipment_id")
         ]
         if shipments:
             answer += f" Freight booking is complete for shipment(s): {', '.join(f'#{shipment}' for shipment in shipments)}."
@@ -578,6 +583,12 @@ def health():
     }
 
 
+@app.get("/readiness")
+def readiness():
+    from backend.readiness import system_readiness
+    return system_readiness()
+
+
 @app.get("/agent-activity")
 def agent_activity(limit: int = 50):
     limit = max(1, min(limit, 200))
@@ -606,6 +617,18 @@ import uuid
 
 @app.post("/ask")
 def ask_agent(request: AskRequest):
+    from backend.agent_progress import progress_scope
+    with progress_scope(request.request_id or str(uuid.uuid4())):
+        return _process_ask(request)
+
+
+@app.get("/ask/progress/{request_id}")
+def ask_progress(request_id: str):
+    from backend.agent_progress import get_progress
+    return get_progress(request_id)
+
+
+def _process_ask(request: AskRequest):
 
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")

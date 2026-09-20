@@ -7,6 +7,7 @@ from typing import Literal, TypedDict
 
 from dotenv import load_dotenv
 from langgraph.graph import END, StateGraph
+from backend.agent_progress import report_progress
 
 try:
     from groq import Groq
@@ -219,6 +220,10 @@ def _extract_date(user_request: str) -> str | None:
     week_match = re.search(r"in\s+(\d+)\s+weeks?", text)
     if week_match:
         return (today + timedelta(days=int(week_match.group(1)) * 7)).isoformat()
+
+    day_match = re.search(r"\b(?:in|within)\s+(\d+)\s+days?\b", text)
+    if day_match:
+        return (today + timedelta(days=int(day_match.group(1)))).isoformat()
 
     iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
     if iso_match:
@@ -2229,12 +2234,14 @@ def _node_classify(state: OperationsState) -> OperationsState:
 
 
 def _node_inventory(state: OperationsState) -> OperationsState:
+    report_progress("Inventory Agent", "Checking material stock")
     response = _execute_specialist_request(state["user_request"])
     response["graph"] = ["Operations Agent", "Inventory Agent"]
     return {**state, "response": response}
 
 
 def _node_forecast(state: OperationsState) -> OperationsState:
+    report_progress("Forecast Agent", "Checking demand history")
     response = _execute_specialist_request(state["user_request"])
     response["graph"] = ["Operations Agent", "Forecast Agent"]
     return {**state, "response": response}
@@ -2246,12 +2253,14 @@ def _wants_purchase_order(user_request: str) -> bool:
 
 
 def _node_production(state: OperationsState) -> OperationsState:
+    report_progress("Production Agent", "Checking production records")
     response = _execute_specialist_request(state["user_request"])
     response["graph"] = response.get("workflow", ["Operations Agent", "Production Agent"])
     return {**state, "response": response}
 
 
 def _node_low_stock_inventory(state: OperationsState) -> OperationsState:
+    report_progress("Inventory Agent", "Checking low-stock materials")
     low_stock_items = get_low_stock()
     mode = "order" if _wants_purchase_order(state["user_request"]) else "source"
 
@@ -2263,6 +2272,7 @@ def _node_low_stock_inventory(state: OperationsState) -> OperationsState:
 
 
 def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
+    report_progress("Supply Chain Agent", "Finding suppliers for material shortages")
     import asyncio
 
     inventory = state.get("inventory") or []
@@ -2289,6 +2299,12 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                     total_value=qty * unit_cost,
                     compliance_keywords=["Organic Cotton", "Child-Labor Free"],
                     destination="Colombo, LK",
+                    po_details={
+                        "material_code": item.get("material_code"),
+                        "material_name": item.get("material_name"),
+                        "unit": item.get("unit"),
+                        "price_basis": "planning_estimate",
+                    },
                 ))
                 supply_chain_results.append({
                     "material": item,
@@ -2322,6 +2338,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
 
 
 def _node_synthesize_low_stock_procurement(state: OperationsState) -> OperationsState:
+    report_progress("Operations Agent", "Preparing your results")
     inventory = state.get("inventory") or []
     procurement = state.get("procurement") or []
     mode = state.get("supply_chain_mode", "source")
@@ -2428,6 +2445,7 @@ def _node_prepare_plan(state: OperationsState) -> OperationsState:
 
 
 def _node_production_evidence(state: OperationsState) -> OperationsState:
+    report_progress("Production Agent", "Checking capacity and the deadline")
     if not state.get("sku") and not state.get("product_name"):
         return {
             **state,
@@ -2476,6 +2494,7 @@ def _node_production_evidence(state: OperationsState) -> OperationsState:
 
 
 def _node_forecast_evidence(state: OperationsState) -> OperationsState:
+    report_progress("Forecast Agent", "Checking demand for this product")
     sku = state.get("sku")
     if not sku:
         return {**state, "forecast": {"status": "skipped", "message": "Forecast skipped because SKU could not be resolved."}}
@@ -2503,23 +2522,25 @@ def _needs_procurement(state: OperationsState) -> str:
 
 
 def _node_procurement_evidence(state: OperationsState) -> OperationsState:
+    report_progress("Supply Chain Agent", "Reviewing material shortages")
     import asyncio
     from backend.supply_chain.orchestrator import start_pipeline
 
     procurement_runs = []
-    seen_categories = set()
-
     for material in (state.get("production") or {}).get("blocking_materials", []):
         material_type, requirement_id, unit_cost = _material_type_for_shortage(
             material.get("material_code"),
             material.get("material_name"),
         )
-        if material_type in seen_categories:
-            continue
-        seen_categories.add(material_type)
-
         shortage = float(material.get("shortage") or 0)
-        qty = shortage if shortage > 0 else 300.0
+        if material.get("status") != "SHORTAGE" or shortage <= 0:
+            procurement_runs.append({
+                "material_code": material.get("material_code"),
+                "material_name": material.get("material_name"),
+                "error": "Verify the inventory record and required quantity before drafting an order.",
+            })
+            continue
+        qty = shortage
 
         try:
             run = asyncio.run(start_pipeline(
@@ -2529,11 +2550,19 @@ def _node_procurement_evidence(state: OperationsState) -> OperationsState:
                 total_value=qty * unit_cost,
                 compliance_keywords=["Organic Cotton", "Child-Labor Free"],
                 destination="Colombo, LK",
+                po_details={
+                    "material_code": material.get("material_code"),
+                    "material_name": material.get("material_name"),
+                    "unit": material.get("unit"),
+                    "required_date": state.get("required_date"),
+                    "price_basis": "planning_estimate",
+                },
             ))
             procurement_runs.append({
                 "material_code": material.get("material_code"),
                 "material_name": material.get("material_name"),
                 "shortage": shortage,
+                "unit": material.get("unit"),
                 "run": run,
             })
         except Exception as error:
@@ -2548,6 +2577,7 @@ def _node_procurement_evidence(state: OperationsState) -> OperationsState:
 
 
 def _node_synthesize_plan(state: OperationsState) -> OperationsState:
+    report_progress("Operations Agent", "Combining the evidence and next steps")
     production = state.get("production") or {}
     forecast = state.get("forecast") or {}
     procurement = state.get("procurement") or []
@@ -2584,7 +2614,7 @@ def _node_synthesize_plan(state: OperationsState) -> OperationsState:
     else:
         answer_parts = [
             f"I checked the plan for {_format_count(quantity)} units of {product_name}{deadline_text}.",
-            f"My current read is: {status_label}.",
+            production.get("message") or f"My current read is: {status_label}.",
         ]
 
     if forecast.get("status") == "success":
@@ -2595,7 +2625,9 @@ def _node_synthesize_plan(state: OperationsState) -> OperationsState:
     blocking = production.get("blocking_materials", [])
     if blocking:
         shortage_text = "; ".join(
-            f"{item.get('material_name', item.get('material_code'))} is short by {_format_count(item.get('shortage', 0))} {item.get('unit', 'units')}"
+            (f"{item.get('material_name', item.get('material_code'))} is short by {_format_count(item.get('shortage', 0))} {item.get('unit', 'units')}"
+             if item.get("status") == "SHORTAGE"
+             else f"{item.get('material_code')} has no inventory record")
             for item in blocking
         )
         answer_parts.append(f"The main material issue is this: {shortage_text}.")
@@ -2603,15 +2635,16 @@ def _node_synthesize_plan(state: OperationsState) -> OperationsState:
     drafted = [
         item for item in procurement
         if (item.get("run") or {}).get("status") == "awaiting_approval"
+        and (item.get("run", {}).get("po") or {}).get("po_id")
     ]
     if drafted:
         answer_parts.append(
-            f"I have already asked Supply Chain to source the missing items and draft {len(drafted)} purchase order(s) for approval."
+            f"I drafted {len(drafted)} purchase order(s). Please review and authorize each order below before it is sent or booked for shipping."
         )
-    elif blocking:
-        answer_parts.append("I could not draft the purchase orders automatically, so the shortage details need manual review.")
+    if blocking and len(drafted) < len(blocking):
+        answer_parts.append("Some shortages still need manual review; purchase orders were not drafted for all missing materials.")
 
-    if production.get("reallocation"):
+    if (production.get("reallocation") or {}).get("options"):
         answer_parts.append("There is also a possible production reallocation, but that should be approved by a manager before changing commitments.")
 
     response = {
@@ -2620,7 +2653,7 @@ def _node_synthesize_plan(state: OperationsState) -> OperationsState:
         "delegated_to": "Multi-Agent Planning Graph",
         "llm_used": client is not None,
         "intent": "operational_plan",
-        "status": "success",
+        "status": "success" if status in {"FEASIBLE", "AT_RISK", "INFEASIBLE"} else "needs_more_info",
         "workflow": workflow,
         "answer": " ".join(answer_parts),
         "requires_approval": bool(production.get("requires_approval") or drafted),
@@ -2642,6 +2675,7 @@ def _node_synthesize_plan(state: OperationsState) -> OperationsState:
 
 
 def _node_procurement(state: OperationsState) -> OperationsState:
+    report_progress("Supply Chain Agent", "Reviewing your procurement request")
     try:
         response = _execute_specialist_request(state["user_request"])
     except ImportError as error:
