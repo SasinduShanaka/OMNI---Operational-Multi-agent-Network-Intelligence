@@ -91,9 +91,9 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
   return (
     <div>
       {/* Controls */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-3 flex items-center justify-between rounded-xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Supplier Directory</h2>
+          <h2 className="text-[13px] font-semibold text-slate-900">Supplier Directory</h2>
           <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mt-0.5">{suppliers.length} ERP-registered vendors</p>
         </div>
         <div className="flex items-center gap-2">
@@ -106,13 +106,13 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
               placeholder="Search suppliers..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-8 pr-4 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 bg-white shadow-sm"
+              className="pl-8 pr-3 py-1.5 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 bg-white"
             />
           </div>
           <select
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white shadow-sm focus:outline-none focus:border-amber-400"
+            className="text-[13px] border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-blue-400"
           >
             <option value="all">All Categories</option>
             <option value="fabric_mill">Fabric Mills</option>
@@ -123,18 +123,18 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
       </div>
 
       {/* Table — matches dashboard's white card with shadow */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-[0_10px_25px_rgba(15,23,42,0.03)] overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)] overflow-hidden">
+        <table className="w-full text-[13px]">
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Supplier</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Category</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Rating</th>
-              <th className="text-left px-6 py-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Lead Time</th>
-              <th className="px-6 py-4"></th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Supplier</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Category</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Rating</th>
+              <th className="text-left px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">Lead Time</th>
+              <th className="px-4 py-1.5"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-slate-100">
             {filtered.map((s, idx) => {
               const cat = CATEGORY_META[s.category] || { label: s.category, cls: 'bg-slate-100 text-slate-600 border-slate-200' }
               const isEditing = editingId === s.supplier_id
@@ -144,11 +144,11 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                   key={s.supplier_id}
                   className="hover:bg-amber-50/30 transition-colors group"
                 >
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     <div className="flex items-center gap-3">
                       {/* Color avatar for each supplier */}
                       <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
                         style={{ background: `hsl(${(s.supplier_id * 47) % 360}, 55%, 45%)` }}
                       >
                         {s.name.charAt(0)}
@@ -159,7 +159,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     {isEditing ? (
                       <select
                         value={editForm.category}
@@ -176,7 +176,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     {isEditing ? (
                       <input
                         type="number"
@@ -191,7 +191,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                       <StarRating rating={s.rating} />
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-2">
                     {isEditing ? (
                       <input
                         type="number"
@@ -203,18 +203,18 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                       <LeadTimeBadge days={s.lead_time_days} />
                     )}
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-4 py-2 text-right">
                     {isEditing ? (
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => setEditingId(null)}
-                          className="bg-white border border-slate-300 text-slate-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 shadow-sm"
+                          className="bg-white border border-slate-300 text-slate-600 text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-slate-50 shadow-sm"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={() => handleSaveEdit(s.supplier_id)}
-                          className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-emerald-700 shadow-sm"
+                          className="bg-emerald-600 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-emerald-700 shadow-sm"
                         >
                           Save
                         </button>
@@ -223,19 +223,19 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
                         <button
                           onClick={() => handleEditClick(s)}
-                          className="bg-white border border-slate-300 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 shadow-sm"
+                          className="bg-white border border-slate-300 text-slate-700 text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-slate-50 shadow-sm"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDelete(s.supplier_id)}
-                          className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-100 shadow-sm"
+                          className="bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-red-100 shadow-sm"
                         >
                           Delete
                         </button>
                         <button
                           onClick={() => onRequestSupply(s)}
-                          className="bg-[#1a2430] text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-[#2c3e50] shadow-sm"
+                          className="bg-[#0f172a] text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-[#334155] shadow-sm"
                         >
                           Request Supply
                         </button>
@@ -248,7 +248,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="text-center py-16 text-slate-400 text-sm">No suppliers match your search.</div>
+          <div className="text-center py-10 text-slate-400 text-[13px]">No suppliers match your search.</div>
         )}
       </div>
 

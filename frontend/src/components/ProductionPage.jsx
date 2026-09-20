@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { SceneStage } from './FactoryScene'
+
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
 
@@ -54,6 +56,41 @@ function formatNumber(value) {
   }
 
   return Number(value).toLocaleString()
+}
+
+
+// ============================================================
+// CIRCULAR STAT GAUGE — used in the hero stat row
+// ============================================================
+
+function CircularStat({ label, value, sublabel, accent }) {
+  const radius = 30
+  const circumference = 2 * Math.PI * radius
+  const pct = Math.max(0, Math.min(100, Number(value) || 0))
+  const offset = circumference * (1 - pct / 100)
+
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+      <svg width="72" height="72" viewBox="0 0 72 72" className="shrink-0 -rotate-90">
+        <circle cx="36" cy="36" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="7" />
+        <circle
+          cx="36"
+          cy="36"
+          r={radius}
+          fill="none"
+          stroke={accent}
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{label}</p>
+        <p className="mt-1 text-xl font-semibold text-slate-900">{sublabel}</p>
+      </div>
+    </div>
+  )
 }
 
 
@@ -183,6 +220,7 @@ function ProductionPage() {
 
   if (loading) {
     return (
+      <SceneStage scene="production">
       <div className="p-8">
 
         <h1 className="text-2xl font-semibold text-slate-900">
@@ -198,11 +236,14 @@ function ProductionPage() {
         </div>
 
       </div>
+      </SceneStage>
     )
   }
 
 
   const verdict = result ? (VERDICT_STYLES[result.status] || VERDICT_STYLES.NOT_FOUND) : null
+  const bottleneckLine = lines.find((line) => line.status === 'BOTTLENECK')
+  const offlineCount = lines.filter((line) => line.status === 'OFFLINE').length
 
 
   // --------------------------------------------------
@@ -210,17 +251,18 @@ function ProductionPage() {
   // --------------------------------------------------
 
   return (
-    <div className="p-8">
+    <SceneStage scene="production">
+    <div className="mx-auto w-full max-w-[1280px] px-5 pb-8">
 
       {/* ================================================ */}
       {/* HEADER */}
       {/* ================================================ */}
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-4 pt-6">
 
-        <div>
+        <div className="rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3] mb-3">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
             Production intelligence
           </div>
@@ -229,7 +271,7 @@ function ProductionPage() {
             Line planning
           </h1>
 
-          <p className="text-sm text-[#86612b] mt-2">
+          <p className="text-sm text-[#64748b] mt-2">
             Capacity, bottlenecks and order feasibility across every production line
           </p>
 
@@ -241,13 +283,14 @@ function ProductionPage() {
             px-4
             py-2.5
             rounded-xl
-            bg-white
+            bg-white/85
             border
-            border-slate-200
+            border-white/70
             text-sm
             text-slate-700
-            shadow-sm
-            hover:bg-slate-50
+            backdrop-blur-md
+            shadow-[0_8px_20px_rgba(15,23,42,0.12)]
+            hover:bg-white
             transition
           "
         >
@@ -269,56 +312,120 @@ function ProductionPage() {
 
 
       {/* ================================================ */}
-      {/* KPI HERO */}
+      {/* FACTORY FLOOR HERO — status rail + isometric visual */}
       {/* ================================================ */}
 
       {kpis && (
-        <div className="mb-6 rounded-2xl border border-[#e7dcc7] bg-gradient-to-r from-[#1f3a36] via-[#2d4a46] to-[#2e3d4f] p-5 text-white shadow-[0_18px_40px_rgba(31,58,54,0.18)]">
+        <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[360px_1fr]">
 
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          {/* STATUS RAIL */}
 
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#d7c9ae]">
+          <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+              Factory status
+            </p>
+            <h2 className="mt-1.5 text-[13px] font-semibold text-slate-900">
+              Line overview
+            </h2>
+
+            <div className="mt-4 flex gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {kpis.active_lines} active
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {kpis.bottleneck_count} bottleneck
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                {offlineCount} offline
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-3 max-h-[340px] overflow-y-auto pr-1">
+              {lines.map((line) => (
+                <div key={line.line_id} className="rounded-xl border border-slate-100 p-3">
+
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-slate-700 truncate">
+                      {line.name}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                      LINE_STYLES[line.status] || LINE_STYLES.OFFLINE
+                    }`}>
+                      {line.current_utilization}%
+                    </span>
+                  </div>
+
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={`h-full rounded-full ${
+                        line.status === 'BOTTLENECK' ? 'bg-[#f59e0b]' : 'bg-[#1d4ed8]'
+                      }`}
+                      style={{ width: `${line.current_utilization}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-1 text-[10px] text-slate-400 truncate">
+                    {line.line_id} · builds {line.supported_skus?.join(', ')}
+                  </div>
+
+                </div>
+              ))}
+            </div>
+
+          </div>
+
+
+          {/* ISOMETRIC FACTORY VISUAL */}
+
+          <div className="relative min-h-[420px]">
+
+            {/* Floating capacity card */}
+
+            <div className="absolute left-5 top-5 max-w-[240px] p-4 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)]">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
                 Factory capacity
               </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-                {kpis.average_utilization}% average utilization
-              </h2>
-              <p className="mt-1 text-xs text-[#d7c9ae]">
+              <h3 className="mt-1 text-[22px] font-semibold tracking-tight tabular-nums text-slate-900">
+                {kpis.average_utilization}%
+              </h3>
+              <p className="mt-1 text-[11px] text-slate-500">
                 {formatNumber(kpis.spare_capacity_per_day)} of{' '}
-                {formatNumber(kpis.total_capacity_per_day)} units/day still free
+                {formatNumber(kpis.total_capacity_per_day)} units/day free
               </p>
             </div>
 
-            <div className="flex items-center gap-3 flex-wrap">
+            {/* Floating bottleneck callout */}
 
-              <div className="rounded-xl bg-white/10 px-3 py-2 text-right">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d7c9ae]">
-                  Active lines
+            {bottleneckLine && (
+              <div className="absolute right-5 top-5 max-w-[220px] p-4 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)] !border-amber-200">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-amber-700">
+                    Bottleneck
+                  </p>
                 </div>
-                <div className="mt-1 text-lg font-semibold">
-                  {kpis.active_lines} / {kpis.total_lines}
-                </div>
+                <h3 className="mt-1.5 text-[13px] font-semibold text-slate-900">
+                  {bottleneckLine.name}
+                </h3>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {bottleneckLine.current_utilization}% utilized · {bottleneckLine.line_id}
+                </p>
               </div>
+            )}
 
-              <div className="rounded-xl bg-amber-500/20 px-3 py-2 text-right border border-amber-300/20">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100">
-                  Bottlenecks
-                </div>
-                <div className="mt-1 text-lg font-semibold">
-                  {kpis.bottleneck_count}
-                </div>
-              </div>
+            {/* Floating orders-on-track card */}
 
-              <div className="rounded-xl bg-emerald-500/20 px-3 py-2 text-right border border-emerald-300/20">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-100">
-                  Orders on track
-                </div>
-                <div className="mt-1 text-lg font-semibold">
-                  {kpis.on_track_percentage}%
-                </div>
-              </div>
-
+            <div className="absolute bottom-5 left-5 px-4 py-3 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)]">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                Orders on track
+              </p>
+              <p className="mt-1 text-[18px] font-semibold tabular-nums text-slate-900">
+                {kpis.on_track_percentage}%
+              </p>
             </div>
 
           </div>
@@ -328,16 +435,44 @@ function ProductionPage() {
 
 
       {/* ================================================ */}
+      {/* STAT GAUGES */}
+      {/* ================================================ */}
+
+      {kpis && (
+        <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <CircularStat
+            label="Average utilization"
+            value={kpis.average_utilization}
+            sublabel={`${kpis.average_utilization}%`}
+            accent="#1d4ed8"
+          />
+          <CircularStat
+            label="Orders on track"
+            value={kpis.on_track_percentage}
+            sublabel={`${kpis.on_track_percentage}%`}
+            accent="#3b82f6"
+          />
+          <CircularStat
+            label="Bottlenecks"
+            value={kpis.total_lines ? (kpis.bottleneck_count / kpis.total_lines) * 100 : 0}
+            sublabel={`${kpis.bottleneck_count} / ${kpis.total_lines} lines`}
+            accent="#f59e0b"
+          />
+        </div>
+      )}
+
+
+      {/* ================================================ */}
       {/* FEASIBILITY CHECKER */}
       {/* ================================================ */}
 
-      <div className="mb-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
         <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
           Order feasibility
         </p>
 
-        <h2 className="mt-2 text-lg font-semibold text-slate-900">
+        <h2 className="mt-1.5 text-[13px] font-semibold text-slate-900">
           Can we make it?
         </h2>
 
@@ -395,8 +530,8 @@ function ProductionPage() {
             disabled={checking}
             className="
               rounded-xl
-              bg-[#1f3a36]
-              hover:bg-[#274a44]
+              bg-[#1d4ed8]
+              hover:bg-[#1e40af]
               disabled:opacity-50
               px-4
               py-2.5
@@ -442,7 +577,7 @@ function ProductionPage() {
                 </span>
               </div>
 
-              <h3 className="mt-3 text-lg font-semibold text-slate-900">
+              <h3 className="mt-2 text-[13px] font-semibold text-slate-900">
                 {formatNumber(result.required_quantity)} × {result.product_name}
               </h3>
 
@@ -531,7 +666,7 @@ function ProductionPage() {
                             {formatNumber(check.response.available_quantity)}
                           </td>
                           <td className="py-2">
-                            <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                               isShort
                                 ? 'bg-amber-100 text-amber-700'
                                 : 'bg-emerald-100 text-emerald-700'
@@ -579,7 +714,7 @@ function ProductionPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setDecision('APPROVED')}
-                      className="rounded-lg bg-[#1f3a36] px-3 py-2 text-xs font-medium text-white hover:bg-[#274a44]"
+                      className="rounded-lg bg-[#1d4ed8] px-3 py-2 text-xs font-medium text-white hover:bg-[#1e40af]"
                     >
                       Approve
                     </button>
@@ -613,7 +748,7 @@ function ProductionPage() {
                     <div>
                       <div className="text-sm text-slate-800">
                         {option.line_name}
-                        <span className="ml-2 text-xs text-slate-400">{option.line_id}</span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">{option.line_id}</span>
                       </div>
                       <div className="text-[11px] text-slate-500">
                         {option.current_utilization}% utilized
@@ -639,76 +774,18 @@ function ProductionPage() {
 
 
       {/* ================================================ */}
-      {/* LINE UTILIZATION + ORDERS */}
+      {/* PRODUCTION ORDERS */}
       {/* ================================================ */}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4">
 
-        {/* LINES */}
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
-
-          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-            Capacity
-          </p>
-
-          <h2 className="mt-2 text-lg font-semibold text-slate-900 mb-4">
-            Line utilization
-          </h2>
-
-          <div className="space-y-4">
-            {lines.map((line) => (
-              <div key={line.line_id}>
-
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <div className="text-xs text-slate-700">
-                    {line.name}
-                    <span className="ml-2 text-slate-400">{line.line_id}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                      LINE_STYLES[line.status] || LINE_STYLES.OFFLINE
-                    }`}>
-                      {line.status}
-                    </span>
-                    <span className="text-xs text-slate-600">
-                      {line.current_utilization}%
-                    </span>
-                  </div>
-                </div>
-
-                <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className={`h-full rounded-full ${
-                      line.status === 'BOTTLENECK' ? 'bg-[#d9a441]' : 'bg-[#1f3a36]'
-                    }`}
-                    style={{ width: `${line.current_utilization}%` }}
-                  />
-                </div>
-
-                <div className="mt-1 text-[11px] text-slate-400">
-                  {formatNumber(line.spare_capacity_per_day)} of{' '}
-                  {formatNumber(line.capacity_per_day)} units/day free ·
-                  builds {line.supported_skus?.join(', ')}
-                </div>
-
-              </div>
-            ))}
-          </div>
-
-        </div>
-
-
-        {/* ORDERS */}
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
             Workload
           </p>
 
-          <h2 className="mt-2 text-lg font-semibold text-slate-900 mb-4">
+          <h2 className="mt-1.5 text-[13px] font-semibold text-slate-900 mb-3">
             Production orders
           </h2>
 
@@ -716,11 +793,11 @@ function ProductionPage() {
             {orders.map((order) => (
               <div
                 key={order.production_order_id}
-                className="rounded-xl border border-slate-200 p-3"
+                className="rounded-lg border border-slate-200/80 px-3 py-2.5"
               >
 
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="text-sm text-slate-800">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <div className="text-[13px] font-medium text-slate-800">
                     {order.production_order_id}
                     <span className="ml-2 text-xs text-slate-400">
                       {order.sku} · {order.line_id}
@@ -736,12 +813,12 @@ function ProductionPage() {
 
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
                   <div
-                    className="h-full rounded-full bg-[#2e7d6b]"
+                    className="h-full rounded-full bg-[#3b82f6]"
                     style={{ width: `${order.completion_percentage}%` }}
                   />
                 </div>
 
-                <div className="mt-1.5 text-[11px] text-slate-500">
+                <div className="mt-1.5 text-[11px] text-slate-400">
                   {formatNumber(order.completed_quantity)} of{' '}
                   {formatNumber(order.planned_quantity)} units ·{' '}
                   {order.completion_percentage}% complete
@@ -756,6 +833,7 @@ function ProductionPage() {
       </div>
 
     </div>
+    </SceneStage>
   )
 }
 

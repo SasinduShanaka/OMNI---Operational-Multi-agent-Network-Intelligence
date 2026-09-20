@@ -33,8 +33,8 @@ export default function DemandDataQuality({ sku, result }) {
     return () => controller.abort()
   }, [sku, revision, result])
   const labels = { passed: 'Checks passed', needs_review: 'Needs review', blocked: 'Forecast blocked' }
-  return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="Demand data quality">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Input validation / {sku || 'Select a product'}</p><h2 className="mt-1 text-lg font-bold text-slate-900">Data quality</h2></div><div className="flex items-center gap-3">{quality && (quality.issues.length > 0 ? <button type="button" aria-expanded={issuesOpen} aria-controls={issuesId} onClick={() => {
+  return <section className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]" aria-label="Demand data quality">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-widest text-blue-700">Input validation / {sku || 'Select a product'}</p><h2 className="mt-1 text-lg font-bold text-slate-900">Data quality</h2></div><div className="flex items-center gap-3">{quality && (quality.issues.length > 0 ? <button type="button" aria-expanded={issuesOpen} aria-controls={issuesId} onClick={() => {
       setIssuesOpen(true)
       const details = issuesRef.current
       if (details) {
@@ -42,7 +42,7 @@ export default function DemandDataQuality({ sku, result }) {
         details.querySelector('summary')?.focus({ preventScroll: true })
         details.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       }
-    }} className={`rounded-full px-3 py-1 text-xs font-semibold transition hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 ${quality.status === 'blocked' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>{labels[quality.status]} <span aria-hidden="true">?</span></button> : <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">{labels[quality.status]}</span>)}<button type="button" disabled={!sku || loading} onClick={() => setRevision((value) => value + 1)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">{loading ? 'Checking...' : 'Check again'}</button></div></div>
+    }} className={`rounded-full px-3 py-1 text-xs font-semibold transition hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 ${quality.status === 'blocked' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>{labels[quality.status]} <span aria-hidden="true">?</span></button> : <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{labels[quality.status]}</span>)}<button type="button" disabled={!sku || loading} onClick={() => setRevision((value) => value + 1)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">{loading ? 'Checking...' : 'Check again'}</button></div></div>
     {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
     {loading && <p role="status" className="mt-3 text-sm text-slate-500">Checking MongoDB demand records...</p>}
     {quality && <>
