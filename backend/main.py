@@ -1,5 +1,7 @@
 import os
 import sys
+from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +39,18 @@ load_dotenv(ENV_PATH)
 
 # Supply chain pipeline router (Dinuja's component)
 from backend.supply_chain.router import supply_chain_router
+from backend.report_router import router as report_router
+
+
+@asynccontextmanager
+async def lifespan(app):
+    from backend.report_service import start_scheduler
+    stop, thread = start_scheduler()
+    try:
+        yield
+    finally:
+        stop.set()
+        await asyncio.to_thread(thread.join, 5)
 
 
 # ============================================================
@@ -44,6 +58,7 @@ from backend.supply_chain.router import supply_chain_router
 # ============================================================
 
 app = FastAPI(
+    lifespan=lifespan,
     title="OMNI Operations API",
     description="Operational Multi-Agent Network Intelligence API",
     version="1.0.0",
@@ -75,6 +90,7 @@ app.add_middleware(
 
 # Mount supply chain router under /supply-chain prefix
 app.include_router(supply_chain_router, prefix="/supply-chain", tags=["Supply Chain"])
+app.include_router(report_router)
 
 
 # ============================================================
