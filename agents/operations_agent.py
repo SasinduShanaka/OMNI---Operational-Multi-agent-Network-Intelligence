@@ -1664,10 +1664,27 @@ def _execute_specialist_request(user_request: str):
                 "intent": intent, "status": "error" if selection["status"] == "unavailable" else "needs_information",
                 "workflow": ["Operations Agent", "Forecast Agent"],
                 "answer": selection["message"],
+                "forecast_periods": selection.get("periods", 1),
+                "forecast_mode": selection.get("mode", "forecast"),
+                "suggested_products": [
+                    {"sku": product["sku"], "product_name": product.get("product_name") or product["sku"]}
+                    for product in selection.get("products", [])
+                ],
             }
 
+        if selection.get("mode") == "comparison":
+            from agents.forecast_comparison import compare_last_month
+            try:
+                comparisons = compare_last_month([selection["sku"]] if selection["status"] == "matched" else [p["sku"] for p in products])
+            except Exception:
+                return {"intent": intent, "status": "error", "answer": "Unable to load actual demand or saved forecasts. Check the database connection and try again."}
+            completed = sum(row['status'] == 'success' for row in comparisons)
+            return {"intent": intent, "status": "success" if completed and completed == len(comparisons) else "partial",
+                    "delegated_to": "Forecast Agent", "answer": f"Last completed calendar month (UTC): comparison available for {completed} of {len(comparisons)} products. Saved forecasts are used first; otherwise, labeled historical backtests use only earlier demand. Unavailable values are shown as N/A.",
+                    "comparisons": comparisons}
+
         if selection["status"] == "all":
-            forecasts = forecast_all_demand()
+            forecasts = forecast_all_demand(periods=selection.get("periods", 1))
 
             if not forecasts:
                 return {
@@ -1707,7 +1724,7 @@ def _execute_specialist_request(user_request: str):
                 "results": forecasts,
             }
 
-        forecast = forecast_demand(selection["sku"])
+        forecast = forecast_demand(selection["sku"], periods=selection.get("periods", 1))
 
         if forecast["status"] == "success":
             accuracy = forecast["accuracy"]
@@ -1724,6 +1741,9 @@ def _execute_specialist_request(user_request: str):
                 f"{accuracy_text}"
                 f"{forecast['recommendation']}"
             )
+            if selection.get("periods", 1) > 1:
+                monthly = "; ".join(f"{point['date']}: {point['quantity']:,.2f} units" for point in forecast['predictions'])
+                final_answer += f" Requested {selection['periods']}-month outlook: {monthly}. Periods start after the latest recorded demand month."
         else:
             final_answer = forecast["message"]
 
