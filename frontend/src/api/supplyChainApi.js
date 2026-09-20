@@ -1,6 +1,12 @@
-const API_BASE_URL = 'http://127.0.0.1:8000/supply-chain'
+const API_BASE_URL = `${import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'}/supply-chain`
 
 export const supplyChainApi = {
+  getPipelineStatus: async (runId) => {
+    const response = await fetch(`${API_BASE_URL}/status/${encodeURIComponent(runId)}`)
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.detail || 'Could not refresh the purchase order.')
+    return result
+  },
   // Start the pipeline: Sourcing + PO Draft (Legacy / Manual)
   startPipeline: async (data) => {
     try {

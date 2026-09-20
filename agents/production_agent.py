@@ -1,10 +1,11 @@
 import re
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from database.connection import db
 
 from agents.inventory_agent import check_inventory_requirement
+from backend.agent_progress import report_progress
 
 
 # ============================================================
@@ -574,7 +575,7 @@ def check_capacity(sku=None, product_name=None, quantity=0, required_date=None):
             "message": "A required-by date is needed to assess capacity."
         }
 
-    days_available = (target_date - datetime.now()).days
+    days_available = (target_date.date() - date.today()).days
 
     if days_available <= 0:
 
@@ -584,12 +585,14 @@ def check_capacity(sku=None, product_name=None, quantity=0, required_date=None):
             "line_id": line["line_id"],
             "line_name": line["name"],
             "required_quantity": quantity,
+            "required_date": target_date.date().isoformat(),
             "days_available": days_available,
             "producible_quantity": 0,
             "shortfall": quantity,
-            "message": "The required date has already passed.",
+            "message": "No full production days remain before the required date.",
             "factors": [
-                f"Required date is {abs(days_available)} days in the past"
+                "The required date is today" if days_available == 0
+                else f"Required date is {abs(days_available)} days in the past"
             ]
         }
 
@@ -779,8 +782,10 @@ def check_production_feasibility(
     # --------------------------------------------------------
 
     material_checks = []
+    report_progress("Inventory Agent", "Checking the bill of materials against current stock")
 
-    for requirement in get_material_requirements(resolved_sku, quantity):
+    requirements = get_material_requirements(resolved_sku, quantity)
+    for requirement in requirements:
 
         message = {
             "sender": "production_agent",
@@ -788,6 +793,8 @@ def check_production_feasibility(
             "message_type": "MATERIAL_CHECK",
             "material_code": requirement["material_code"],
             "required_quantity": requirement["required_quantity"],
+            "qty_per_unit": requirement["qty_per_unit"],
+            "unit": requirement["unit"],
         }
 
         response = check_inventory_requirement(
@@ -813,7 +820,10 @@ def check_production_feasibility(
     # Material availability genuinely changes the outcome: an
     # order the line could build is still at risk without stock.
 
-    if capacity["status"] in ("NOT_FOUND", "NO_LINE", "MISSING_DATE"):
+    if not requirements:
+        status = "NO_BOM"
+
+    elif capacity["status"] in ("NOT_FOUND", "NO_LINE", "MISSING_DATE"):
         status = capacity["status"]
 
     elif capacity["status"] == "INFEASIBLE":
@@ -846,7 +856,9 @@ def check_production_feasibility(
                 f"{material.get('material_code')} not found in inventory"
             )
 
-    if not blocking_materials:
+    if not requirements:
+        factors.append("No bill of materials is configured. Material availability cannot be verified.")
+    elif not blocking_materials:
         factors.append("All required materials are in stock")
 
     # --------------------------------------------------------
@@ -910,6 +922,8 @@ def check_production_feasibility(
 
     return {
         "status": status,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "data_source": "MongoDB",
         "sku": resolved_sku,
         "product_name": product.get("name") if product else None,
         "required_quantity": quantity,
@@ -927,7 +941,9 @@ def check_production_feasibility(
             "Inventory Agent"
         ],
         "message": (
-            "The order can be produced on schedule."
+            "Add the product's bill of materials before confirming whether this order can be fulfilled."
+            if status == "NO_BOM"
+            else "The order can be produced on schedule."
             if status == "FEASIBLE"
             else "The order is at risk and needs attention before it is committed."
             if status == "AT_RISK"

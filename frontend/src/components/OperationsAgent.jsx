@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { supplyChainApi } from '../api/supplyChainApi'
 import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
 import ManagementReport from './ManagementReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
+import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
+import SystemReadiness from './SystemReadiness'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -31,108 +33,40 @@ function compactWorkflow(workflow) {
   return compacted
 }
 
-function latestUserText(messages) {
-  return [...messages]
-    .reverse()
-    .find((message) => message.type === 'user')
-    ?.text
-    ?.toLowerCase() || ''
-}
-
-function getProcessingWorkflow(messages) {
-  const latestUserMessage = latestUserText(messages)
-
-  const step = (agent, detail) => ({ agent, detail })
-
-  const startsWithOperations = [
-    step('Operations Agent', 'understanding your request'),
-  ]
-
-  if (/\b(report|pdf|download|summary)\b/.test(latestUserMessage)) {
-    return [
-      ...startsWithOperations,
-      step('Report Agent', 'preparing your report'),
-    ]
-  }
-
-  if (/\b(order|supplier|source|procure|purchase|replenish|approve|authorize)\b/.test(latestUserMessage)) {
-    if (/\b(low stock|low inventory|reorder|shortage|shortages)\b/.test(latestUserMessage)) {
-      return [
-        ...startsWithOperations,
-        step('Inventory Agent', 'checking low-stock materials'),
-        step('Supply Chain Agent', 'coordinating supplier work'),
-        step('Sourcing Agent', 'matching suppliers'),
-        step('Purchasing Agent', 'drafting purchase order details'),
-      ]
-    }
-
-    return [
-      ...startsWithOperations,
-      step('Supply Chain Agent', 'coordinating supplier work'),
-      step('Sourcing Agent', 'matching suppliers'),
-      step('Purchasing Agent', 'drafting purchase order details'),
-    ]
-  }
-
-  if (/\b(produce|production|manufacture|capacity|line|bottleneck|feasible|make)\b/.test(latestUserMessage)) {
-    return [
-      ...startsWithOperations,
-      step('Forecast Agent', 'checking demand signals'),
-      step('Production Agent', 'checking capacity'),
-      step('Inventory Agent', 'checking material constraints'),
-      step('Supply Chain Agent', 'checking procurement risk'),
-    ]
-  }
-
-  if (/\b(forecast|forcast|predict|demand|outlook)\b/.test(latestUserMessage)) {
-    return [
-      ...startsWithOperations,
-      step('Forecast Agent', 'checking demand history'),
-    ]
-  }
-
-  if (/\b(stock|inventory|material|fabric|shortage|reorder)\b/.test(latestUserMessage)) {
-    return [
-      ...startsWithOperations,
-      step('Inventory Agent', 'checking stock levels'),
-    ]
-  }
-
-  return [
-    ...startsWithOperations,
-    step('Operations Agent', 'routing your request'),
-  ]
-}
-
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
-  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
-  const [processingStepIndex, setProcessingStepIndex] = useState(0)
+  const [sessionId, setSessionId] = useState(() => chatState.sessionId || crypto.randomUUID())
+  const [requestId, setRequestId] = useState(null)
+  const [progress, setProgress] = useState(null)
+  const messagesEndRef = useRef(null)
   const { draft, messages, isAsking, error } = chatState
-  const processingWorkflow = useMemo(() => getProcessingWorkflow(messages), [messages])
-  const processingAgent = processingWorkflow[
-    Math.min(processingStepIndex, processingWorkflow.length - 1)
-  ] || processingWorkflow[0]
 
   useEffect(() => {
-    if (!isAsking) {
-      setProcessingStepIndex(0)
-      return undefined
+    if (!isAsking || !requestId) return undefined
+    const controller = new AbortController()
+    let timer
+    async function poll() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/ask/progress/${requestId}`, { signal: controller.signal })
+        if (response.ok) {
+          const update = await response.json()
+          if (!controller.signal.aborted && update.agent) setProgress(update)
+        }
+      } catch {
+        // The chat request can finish even if a progress update is unavailable.
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(poll, 700)
+      }
     }
+    poll()
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [isAsking, requestId])
 
-    setProcessingStepIndex(0)
-
-    if (processingWorkflow.length <= 1) {
-      return undefined
-    }
-
-    const interval = window.setInterval(() => {
-      setProcessingStepIndex((current) => (
-        current >= processingWorkflow.length - 1 ? current : current + 1
-      ))
-    }, 1200)
-
-    return () => window.clearInterval(interval)
-  }, [isAsking, processingWorkflow])
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    })
+  }, [messages, isAsking, progress?.agent, error])
 
   function updateChatState(patch) {
     setChatState((previous) => ({
@@ -147,7 +81,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       return
     }
 
+    const currentRequestId = crypto.randomUUID()
+    setRequestId(currentRequestId)
+    setProgress(null)
+
     updateChatState({
+      sessionId,
       messages: [
         ...messages,
         {
@@ -198,6 +137,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         body: JSON.stringify(managementReport ? managementReportScope(userMessage) : {
           message: isReportRequest(userMessage) ? reportQuery(userMessage) || userMessage : userMessage,
           session_id: sessionId,
+          request_id: currentRequestId,
           payload: payload,
         }),
       })
@@ -213,12 +153,16 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       if (data.session_id && data.session_id !== sessionId) {
         setSessionId(data.session_id)
       }
+      if (data.intent === 'approval_followup') {
+        window.dispatchEvent(new Event('omni:purchase-order-updated'))
+      }
 
       if (isReportRequest(userMessage) && data.intent !== 'unknown') {
         data.reportRequested = true
       }
 
       updateChatState({
+        sessionId: data.session_id || sessionId,
         messages: [
           ...messages,
           {
@@ -251,28 +195,29 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
   }
 
   const suggestedQuestions = [
-    'Show me the full fabric stock list',
+    'Which materials are below their reorder levels?',
     'Find suppliers for low stock materials',
-    'Order low stock materials',
-    'Can we produce 1,250 black polos next month?',
+    'What materials are needed for 1,250 Classic Black Polo units?',
+    'Can we fulfill 10,000 Classic Black Polo units in 30 days? Explain the reasons and next steps.',
   ]
 
   return (
-    <section className="w-full h-full flex flex-col p-8">
+    <section className="h-full w-full min-w-0 flex flex-col p-3 sm:px-6 sm:py-4">
 
       {/* Header */}
-      <div className="mb-5 flex-shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
+      <div className="mb-3 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 px-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+            Ask Omni
+          </h2>
+          <p className="text-sm text-[#64748b]">
+            Factory operations assistant for stock, sourcing, and production planning
+          </p>
+        </div>
+        <div className="inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0]">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
           Factory assistant
         </div>
-        <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-          Ask Omni
-        </h2>
-
-        <p className="text-sm text-[#64748b] mt-2">
-          Factory operations assistant for stock, sourcing, and production planning
-        </p>
       </div>
 
 
@@ -280,10 +225,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       <div className="flex-1 min-h-0 bg-white border border-slate-200 rounded-2xl shadow-[0_12px_30px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
 
         {/* Conversation */}
-        <div className="flex-1 min-h-0 p-6 overflow-y-auto">
+        <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-6 overflow-y-auto">
+
+          <SystemReadiness />
 
           {messages.length === 0 && (
-            <div className="flex items-center justify-center min-h-[400px]">
+            <div className="flex min-h-[260px] items-center justify-center sm:min-h-[300px]">
 
               <div className="text-center max-w-md">
 
@@ -341,7 +288,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                   Ask Omni
                 </p>
 
-                <div className="inline-flex min-w-[340px] flex-col gap-3 rounded-xl border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm text-[#475569] shadow-sm">
+                <div role="status" className="inline-flex max-w-full flex-col gap-3 rounded-lg border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm text-[#475569] shadow-sm">
 
                   <span className="flex items-center gap-3">
                     <span className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
@@ -351,25 +298,21 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
                     <span className="flex flex-col leading-tight">
                       <span className="font-semibold text-slate-700">
-                        {processingAgent.agent}
+                        {progress?.agent || 'Ask Omni'}
                       </span>
                       <span className="mt-0.5 text-xs text-slate-500">
-                        {processingAgent.detail}...
+                        {progress?.detail || 'Waiting for the agent response'}...
                       </span>
                     </span>
                   </span>
 
-                  {processingWorkflow.length > 1 && (
+                  {progress?.steps?.length > 1 && (
                     <span className="flex flex-wrap items-center gap-1.5 pl-8">
-                      {processingWorkflow.map((step, index) => (
+                      {progress.steps.map((agent, index) => (
                         <span
-                          key={`${step.agent}-${index}`}
-                          className={`h-1.5 w-6 rounded-full transition-colors ${
-                            index <= processingStepIndex
-                              ? 'bg-[#2563eb]'
-                              : 'bg-[#cbd5e1]'
-                          }`}
-                          title={step.agent}
+                          key={`${agent}-${index}`}
+                          className="h-1.5 w-6 rounded-full bg-[#2563eb]"
+                          title={agent}
                         />
                       ))}
                     </span>
@@ -388,6 +331,8 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
               {error}
             </div>
           )}
+
+          <div ref={messagesEndRef} />
 
         </div>
 
@@ -430,7 +375,8 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
               onKeyDown={handleKeyDown}
               disabled={isAsking}
               placeholder="Ask about demand, fabric, shortages, or production planning..."
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#3b82f6]/20 transition"
+              aria-label="Message Ask Omni"
+              className="min-w-0 flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#3b82f6]/20 transition"
             />
 
             <button
@@ -493,10 +439,10 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
     && data.answer?.trim() === data.result.message?.trim()
 
   return (
-    <div className="max-w-[92%]">
+    <div className="min-w-0 max-w-full sm:max-w-[92%]">
 
       <p className="text-xs font-medium text-slate-500 mb-2">
-        Ops chat agent
+        Ask Omni
       </p>
 
 
@@ -543,7 +489,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
 
       {data.answer && !answerShownInForecastCard && !data.sections && (
 
-        <div className="bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
+        <div className="whitespace-pre-line break-words bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
 
           {data.answer}
 
@@ -623,6 +569,19 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
           PROCUREMENT
       ====================================================== */}
 
+      {['operational_plan', 'production_feasibility'].includes(data.intent) && data.result && (
+        <PlanningEvidence result={data.result} setActivePage={setActivePage} />
+      )}
+
+      {data.intent === 'product_materials' && data.result && <MaterialEvidence result={data.result} />}
+
+      {data.intent === 'approval_followup' && data.results?.map((item) => (
+        <OmniProcurementCard key={item.run_id} data={item.approval || item} />
+      ))}
+      {data.intent === 'approval_followup' && data.errors?.map((item, index) => (
+        <p role="alert" key={index} className="mt-3 text-sm text-red-700">PO #{item.po_id}: {item.error}</p>
+      ))}
+
       {data.intent === 'procurement' && data.data && (
         <OmniProcurementCard data={data.data} />
       )}
@@ -645,6 +604,27 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
                 key={`${item.material?.material_code || 'material'}-${index}`}
                 item={item}
               />
+            )
+          ))}
+        </div>
+      )}
+
+      {data.intent === 'operational_plan' && data.result?.procurement?.length > 0 && (
+        <div className="mt-4 space-y-4">
+          {data.result.procurement.map((item, index) => (
+            item.run ? (
+              <OmniProcurementCard
+                key={item.run.run_id || index}
+                data={item.run}
+                material={item}
+              />
+            ) : (
+              <div
+                key={`${item.material_code || 'procurement'}-${index}`}
+                className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {item.material_name || item.material_code || 'Material'} needs manual review: {item.error || 'purchase order was not drafted.'}
+              </div>
             )
           ))}
         </div>
@@ -828,7 +808,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
               ? 'text-emerald-600'
               : 'text-amber-600'
           }>
-            {formatStatus(data.status)}
+            {data.intent === 'operational_plan' && data.status === 'success' ? 'Assessment complete' : formatStatus(data.status)}
           </span>
         )}
 
@@ -1554,13 +1534,41 @@ function SupplierSuggestionCard({ item }) {
 
 
 function OmniProcurementCard({ data, material }) {
-  const supplier = data.supplier || {}
-  const po = data.po || {}
+  const [current, setCurrent] = useState(data)
+  const supplier = current.supplier || {}
+  const po = current.po || {}
   const [status, setStatus] = useState(data.status || 'unknown')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [actionResult, setActionResult] = useState(null)
   const [actionError, setActionError] = useState('')
-  const isAwaitingApproval = status === 'awaiting_approval'
+  const isAwaitingApproval = status === 'awaiting_approval' && Boolean(po.po_id)
+
+  useEffect(() => {
+    if (!data.run_id) return undefined
+    let active = true
+    async function refresh() {
+      try {
+        const result = await supplyChainApi.getPipelineStatus(data.run_id)
+        if (active) {
+          setCurrent(result)
+          setStatus(result.status)
+          setActionError('')
+        }
+      } catch (error) {
+        if (active) setActionError(error.message)
+      }
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    window.addEventListener('omni:purchase-order-updated', refresh)
+    const interval = ['awaiting_approval', 'approving'].includes(status) ? window.setInterval(refresh, 5000) : null
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('omni:purchase-order-updated', refresh)
+    }
+  }, [data.run_id, status])
 
   async function handleApprove() {
     if (!data.run_id || isSubmitting) {
@@ -1580,12 +1588,13 @@ function OmniProcurementCard({ data, material }) {
       setStatus('completed')
       setActionResult({
         type: 'approved',
-        message: `Approved. Freight booking has been started for this purchase order.${emailMessage}`,
+        message: `Approved.${result.shipment_id ? ` Shipment #${result.shipment_id} created.` : ' No shipment was returned.'}${emailMessage}`,
         details: result,
       })
     } catch (error) {
       setActionError(error.message || 'Could not approve this purchase order.')
     } finally {
+      window.dispatchEvent(new Event('omni:purchase-order-updated'))
       setIsSubmitting(false)
     }
   }
@@ -1608,12 +1617,13 @@ function OmniProcurementCard({ data, material }) {
     } catch (error) {
       setActionError(error.message || 'Could not reject this purchase order.')
     } finally {
+      window.dispatchEvent(new Event('omni:purchase-order-updated'))
       setIsSubmitting(false)
     }
   }
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white text-sm text-slate-700 shadow-sm">
+    <div className="mt-4 min-w-0 overflow-hidden rounded-lg border border-[#e2e8f0] bg-white text-sm text-slate-700 shadow-sm">
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-[#ffffff] px-4 py-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#0369a1]">Procurement run</p>
@@ -1628,7 +1638,7 @@ function OmniProcurementCard({ data, material }) {
             ? 'bg-amber-100 text-amber-700'
             : status === 'failed'
               ? 'bg-red-100 text-red-700'
-              : 'bg-emerald-100 text-emerald-700'
+              : status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
         }`}>
           {formatStatus(status)}
         </span>
@@ -1636,16 +1646,22 @@ function OmniProcurementCard({ data, material }) {
 
       <div className="grid gap-3 p-4 md:grid-cols-2">
         <Detail label="Run ID" value={data.run_id || '-'} />
-        <Detail label="Material Type" value={formatStatus(data.material_type || 'unknown')} />
+        <Detail label="Material Type" value={formatStatus(current.material_type || 'unknown')} />
         <Detail label="Supplier" value={supplier.supplier_name || '-'} />
         <Detail label="Country" value={supplier.country || '-'} />
         <Detail label="Rating" value={supplier.rating !== undefined ? Number(supplier.rating).toFixed(1) : '-'} />
         <Detail label="Lead Time" value={supplier.lead_time_days ? `${supplier.lead_time_days} days` : '-'} />
         <Detail label="PO ID" value={po.po_id ? `#${po.po_id}` : '-'} />
-        <Detail label="PO Status" value={formatStatus(po.status || status)} />
-        <Detail label="Quantity" value={data.qty ? Number(data.qty).toLocaleString() : po.qty ? Number(po.qty).toLocaleString() : '-'} />
-        <Detail label="Total Value" value={data.total_value ? `LKR ${Number(data.total_value).toLocaleString()}` : '-'} />
+        <Detail label="PO Status" value={formatStatus(status === 'completed' ? 'approved' : status === 'rejected' ? 'rejected' : po.status || status)} />
+        <Detail label="Quantity" value={`${current.qty != null ? Number(current.qty).toLocaleString() : po.qty != null ? Number(po.qty).toLocaleString() : '-'} ${current.po_details?.unit || material?.unit || ''}`} />
+        <Detail label={current.po_details?.price_basis === 'planning_estimate' ? 'Estimated total (verify before approval)' : 'Total value'} value={current.total_value != null ? `LKR ${Number(current.total_value).toLocaleString()}` : '-'} />
       </div>
+
+      <dl className="grid gap-3 border-t border-slate-100 px-4 py-3 text-xs sm:grid-cols-3" aria-label="Order action status">
+        <div><dt className="text-slate-500">Purchase order</dt><dd className="mt-1 font-medium">{po.po_id ? `#${po.po_id} - ${formatStatus(status === 'completed' ? 'approved' : status === 'rejected' ? 'rejected' : po.status || status)}` : 'Not drafted'}</dd></div>
+        <div><dt className="text-slate-500">Freight</dt><dd className="mt-1 font-medium">{current.shipment?.shipment_id ? `Shipment #${current.shipment.shipment_id} created` : isAwaitingApproval ? 'Waiting for approval' : 'No shipment recorded'}</dd></div>
+        <div><dt className="text-slate-500">Supplier email</dt><dd className={`mt-1 break-words font-medium ${current.email_error ? 'text-amber-800' : ''}`}>{current.email_sent ? `Sent to ${current.email_recipient}` : current.email_error || (isAwaitingApproval ? 'Waiting for approval' : 'Not sent')}</dd></div>
+      </dl>
 
       {supplier.compliance_proof && (
         <div className="border-t border-slate-100 px-4 py-3">
@@ -1706,9 +1722,9 @@ function OmniProcurementCard({ data, material }) {
         </div>
       )}
 
-      {data.error && (
+      {current.error && (
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
-          {data.error}
+          {current.error}
         </div>
       )}
     </div>
