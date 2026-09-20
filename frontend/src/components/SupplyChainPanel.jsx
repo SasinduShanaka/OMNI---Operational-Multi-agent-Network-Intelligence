@@ -4,6 +4,7 @@ import PurchaseOrdersTab from './supply_chain/PurchaseOrdersTab'
 import ShipmentsTab from './supply_chain/ShipmentsTab'
 import CopilotChat from './supply_chain/CopilotChat'
 import { supplyChainApi } from '../api/supplyChainApi'
+import { SceneStage } from './FactoryScene'
 
 // ------------------------------------------------------------------
 // Metric Card — matches the Dashboard MetricCard style exactly
@@ -18,16 +19,16 @@ const ACCENT = {
 function MetricCard({ title, value, subtitle, accent = 'amber', icon }) {
   const a = ACCENT[accent]
   return (
-    <div className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_10px_25px_rgba(15,23,42,0.03)] flex flex-col gap-3`}>
+    <div className={`rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)] flex flex-col gap-2.5`}>
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{title}</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{title}</p>
         <span className={`w-7 h-7 rounded-lg ${a.bg} ${a.border} border flex items-center justify-center`}>
           {icon}
         </span>
       </div>
       <div>
-        <p className={`text-3xl font-bold tracking-tight ${a.text}`}>{value}</p>
-        <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
+        <p className="text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">{value}</p>
+        <p className="mt-1 text-[11px] text-slate-400">{subtitle}</p>
       </div>
     </div>
   )
@@ -119,43 +120,44 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#f5f1ea] overflow-y-auto">
+    <div className="flex flex-col h-full overflow-y-auto">
+      <SceneStage scene="supplier">
 
       {/* ── Hero Banner ── matches Dashboard's dark gradient banner */}
-      <div className="flex-shrink-0 px-8 pt-8">
+      <div className="mx-auto w-full max-w-[1280px] flex-shrink-0 px-5 pt-5">
 
-        {/* Status pill */}
-        <div className="flex items-center gap-2 mb-3">
-          <span className="inline-flex items-center gap-2 rounded-full bg-[#1f3a36] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f3e8d3]">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-            Procurement live
-          </span>
-        </div>
+        {/* Header — sits straight on the inbound yard scene */}
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3 pt-4">
 
-        <div className="flex items-start justify-between mb-5">
-          <div>
-            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Supply chain overview</h1>
-            <p className="text-sm text-[#86612b] mt-2">
-              Supplier sourcing, purchase orders, and freight logistics · powered by Omni agents
-            </p>
-          </div>
-          <button
-            onClick={() => { setPrefillSupplier(null); setCopilotOpen(true) }}
-            className="flex items-center gap-2 bg-[#1a2430] text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-md hover:bg-[#2c3e50] transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-            </svg>
-            New Request
-          </button>
+            <div className="rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0]">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+                Procurement live
+              </span>
+              <h1 className="mt-3 text-3xl font-semibold text-slate-900 tracking-tight">Supply chain overview</h1>
+              <p className="text-sm text-[#64748b] mt-2">
+                Supplier sourcing, purchase orders, and freight logistics · powered by Omni agents
+              </p>
+            </div>
+
+            <button
+              onClick={() => { setPrefillSupplier(null); setCopilotOpen(true) }}
+              className="flex items-center gap-2 bg-[#0f172a] text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-[0_10px_24px_rgba(15,23,42,0.4)] hover:bg-[#334155] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+              </svg>
+              New Request
+            </button>
+
         </div>
 
         {/* Dark gradient hero — same style as dashboard's production pulse */}
-        <div className="rounded-2xl border border-[#e7dcc7] bg-gradient-to-r from-[#1f3a36] via-[#2d4a46] to-[#2e3d4f] p-5 text-white shadow-[0_18px_40px_rgba(31,58,54,0.18)] mb-5">
+        <div className="rounded-2xl border border-[#e2e8f0] bg-gradient-to-r from-[#1d4ed8] via-[#2563eb] to-[#1e40af] p-4 text-white shadow-[0_18px_44px_rgba(15,23,42,0.22)] mb-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#d7c9ae]">Procurement pulse</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[#cbd5e1]">Procurement pulse</p>
+              <h2 className="mt-1.5 text-lg font-semibold tracking-tight">
                 {metrics.pendingPos > 0
                   ? `${metrics.pendingPos} purchase order${metrics.pendingPos > 1 ? 's' : ''} awaiting your approval`
                   : 'All purchase orders are up to date'}
@@ -166,16 +168,16 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-white/10 px-4 py-2 text-right">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d7c9ae]">Suppliers</div>
+              <div className="rounded-xl bg-white/10 px-3 py-1.5 text-right">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#cbd5e1]">Suppliers</div>
                 <div className="mt-1 text-lg font-semibold">{metrics.suppliers}</div>
               </div>
-              <div className="rounded-xl bg-emerald-500/20 px-4 py-2 text-right border border-emerald-300/20">
+              <div className="rounded-xl bg-emerald-500/20 px-3 py-1.5 text-right border border-emerald-300/20">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-emerald-100">Active ships</div>
                 <div className="mt-1 text-lg font-semibold">{metrics.activeShipments}</div>
               </div>
               {metrics.delayed > 0 && (
-                <div className="rounded-xl bg-orange-500/20 px-4 py-2 text-right border border-orange-300/20">
+                <div className="rounded-xl bg-orange-500/20 px-3 py-1.5 text-right border border-orange-300/20">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-orange-200">Delayed</div>
                   <div className="mt-1 text-lg font-semibold">{metrics.delayed}</div>
                 </div>
@@ -185,7 +187,7 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
         </div>
 
         {/* Metric cards row — same pattern as dashboard */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
           <MetricCard
             title="Supplier network"
             value={metrics.suppliers}
@@ -217,15 +219,15 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center border-b border-slate-200 gap-1">
+        <div className="flex items-center gap-1 rounded-xl border border-slate-200/80 bg-white px-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all -mb-px ${
+              className={`my-1.5 flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-all ${
                 activeTab === tab.id
-                  ? 'border-[#d9a441] text-[#1a2430]'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  ? 'bg-[#1d4ed8] text-white shadow-[0_6px_14px_-6px_rgba(29,78,216,0.8)]'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
               }`}
             >
               {tab.icon}
@@ -236,7 +238,7 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
       </div>
 
       {/* ── Tab Content ── */}
-      <div className="flex-1 px-8 py-6">
+      <div className="mx-auto w-full max-w-[1280px] flex-1 px-5 py-4">
         {loadingData ? (
            <div className="flex items-center justify-center h-64 text-slate-400">Loading modules...</div>
         ) : (
@@ -254,6 +256,8 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
         )}
       </div>
 
+      </SceneStage>
+
       {/* ── Floating Copilot ── */}
       <CopilotChat
         isOpen={copilotOpen}
@@ -267,7 +271,7 @@ export default function SupplyChainPanel({ initialQuery, clearQuery }) {
       {!copilotOpen && (
         <button
           onClick={() => { setPrefillSupplier(null); setCopilotOpen(true) }}
-          className="fixed bottom-6 right-6 z-30 w-14 h-14 bg-gradient-to-br from-[#d9a441] to-[#b87d39] text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
+          className="fixed bottom-6 right-6 z-30 w-14 h-14 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] text-white rounded-full shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
           title="Open Omni Copilot"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

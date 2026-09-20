@@ -44,12 +44,12 @@ export default function ForecastChart({ history, predictions }) {
           <p className="mt-1 text-xs text-slate-400">Monthly demand · units</p>
         </div>
         <div className="inline-flex gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="Historical time range">
-          {[6, 12, 24].map((value) => <button key={value} type="button" aria-pressed={range === value} onClick={() => { setRange(value); setActiveDate(null) }} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 ${range === value ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{value}M</button>)}
+          {[6, 12, 24].map((value) => <button key={value} type="button" aria-pressed={range === value} onClick={() => { setRange(value); setActiveDate(null) }} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${range === value ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}>{value}M</button>)}
         </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3" aria-live="polite" aria-atomic="true">
-        <span className={`h-2 w-2 rounded-full ${selected.type === 'Actual' ? 'bg-emerald-700' : 'bg-amber-500'}`} />
+        <span className={`h-2 w-2 rounded-full ${selected.type === 'Actual' ? 'bg-blue-700' : 'bg-amber-500'}`} />
         <span className="text-xs font-medium text-slate-600">{month(selected.date)} <span className="px-1 text-slate-300">/</span> {selected.type}</span>
         <span className="ml-auto text-lg font-bold tabular-nums text-slate-900">{number(selected.quantity)} <span className="text-xs font-normal text-slate-500">units</span></span>
       </div>
@@ -57,16 +57,16 @@ export default function ForecastChart({ history, predictions }) {
       <div className="overflow-x-auto rounded-xl" tabIndex={0} role="region" aria-label="Demand chart. Scroll horizontally on small screens.">
         <svg viewBox={`0 0 ${width} 330`} className="block w-full min-w-[580px] max-h-[330px]" role="group" aria-labelledby={`${gradient}-title ${gradient}-description`}>
           <title id={`${gradient}-title`}>Actual demand and Holt forecast</title>
-          <desc id={`${gradient}-description`}>Solid emerald line shows history; dashed amber line shows projected demand. Focus a point for its month and quantity. The shaded forecast area marks future months, not a confidence interval.</desc>
+          <desc id={`${gradient}-description`}>Solid blue line shows history; dashed amber line shows projected demand. Focus a point for its month and quantity. The shaded forecast area marks future months, not a confidence interval.</desc>
           <defs>
-            <linearGradient id={`${gradient}-actual`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#059669" stopOpacity="0.2" /><stop offset="100%" stopColor="#059669" stopOpacity="0.01" /></linearGradient>
+            <linearGradient id={`${gradient}-actual`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563eb" stopOpacity="0.2" /><stop offset="100%" stopColor="#2563eb" stopOpacity="0.01" /></linearGradient>
             <linearGradient id={`${gradient}-future`} x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#fffbeb" /><stop offset="100%" stopColor="#fef3c7" stopOpacity="0.5" /></linearGradient>
           </defs>
           {future.length > 0 && <rect x={boundary} y={top - 18} width={width - right - boundary} height={bottom - top + 18} rx="10" fill={`url(#${gradient}-future)`} />}
           {[0, 1, 2, 3, 4].map((tick) => <g key={tick}><line x1={left} x2={width - right} y1={y(tick * step)} y2={y(tick * step)} stroke="#e2e8f0" strokeDasharray={tick ? '3 5' : undefined} /><text x={left - 14} y={y(tick * step) + 4} textAnchor="end" fontSize="11" fill="#64748b">{number(tick * step)}</text></g>)}
           {actual.length > 1 && <path d={`${actualPath} L ${x(actual.length - 1)} ${bottom} L ${left} ${bottom} Z`} fill={`url(#${gradient}-actual)`} />}
           {average !== null && <line x1={left} x2={width - right} y1={y(average)} y2={y(average)} stroke="#94a3b8" strokeDasharray="2 6" />}
-          {actual.length > 0 && <path d={actualPath} fill="none" stroke="#047857" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
+          {actual.length > 0 && <path d={actualPath} fill="none" stroke="#1d4ed8" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
           {future.length > 0 && <>
             <line x1={boundary} x2={boundary} y1={top - 18} y2={bottom} stroke="#d97706" strokeOpacity="0.4" strokeDasharray="4 5" />
             <text x={width - right} y="16" textAnchor="end" fill="#b45309" fontSize="10" fontWeight="600" letterSpacing="1.5">FORECAST →</text>
@@ -74,8 +74,8 @@ export default function ForecastChart({ history, predictions }) {
           </>}
           <line x1={x(selectedIndex)} x2={x(selectedIndex)} y1={top} y2={bottom} stroke="#64748b" strokeOpacity="0.35" strokeDasharray="3 4" />
           {points.map((point, index) => <g key={`${point.type}-${point.date}`}>
-            {point === selected && <circle cx={x(index)} cy={y(point.quantity)} r="10" fill={point.type === 'Actual' ? '#059669' : '#f59e0b'} fillOpacity="0.13" />}
-            <circle cx={x(index)} cy={y(point.quantity)} r={point === selected ? 5 : 3.5} fill="white" stroke={point.type === 'Actual' ? '#047857' : '#d97706'} strokeWidth="2" />
+            {point === selected && <circle cx={x(index)} cy={y(point.quantity)} r="10" fill={point.type === 'Actual' ? '#2563eb' : '#f59e0b'} fillOpacity="0.13" />}
+            <circle cx={x(index)} cy={y(point.quantity)} r={point === selected ? 5 : 3.5} fill="white" stroke={point.type === 'Actual' ? '#1d4ed8' : '#d97706'} strokeWidth="2" />
             <circle cx={x(index)} cy={y(point.quantity)} r="12" fill="transparent" tabIndex={0} role="img" aria-label={`${month(point.date)}, ${point.type}, ${number(point.quantity)} units`} onMouseEnter={() => setActiveDate(point.date)} onFocus={() => setActiveDate(point.date)} onClick={() => setActiveDate(point.date)} className="cursor-crosshair focus:outline-none focus:stroke-slate-500">
               <title>{month(point.date)}: {number(point.quantity)} units ({point.type})</title>
             </circle>
@@ -88,7 +88,7 @@ export default function ForecastChart({ history, predictions }) {
         <div><p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Historical average</p><p className="mt-1 text-sm font-semibold text-slate-700">{average === null ? '—' : `${number(average)} units`} <span className="ml-1 inline-block w-5 border-t border-dotted border-slate-400 align-middle" /></p></div>
         <div className="text-right"><p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Forecast horizon</p><p className="mt-1 text-sm font-semibold text-amber-700">{future.length} month{future.length !== 1 ? 's' : ''} ahead</p></div>
       </div>
-      <details className="mt-4 text-xs text-slate-500"><summary className="w-fit cursor-pointer rounded py-1 focus-visible:outline-emerald-600">View chart data</summary><div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-left"><caption className="sr-only">Monthly demand values for the selected time range</caption><thead><tr><th scope="col" className="py-2">Month</th><th scope="col">Series</th><th scope="col" className="text-right">Units</th></tr></thead><tbody>{points.map((point) => <tr key={`${point.type}-${point.date}`} className="border-t border-slate-100"><td className="py-2">{month(point.date)}</td><td>{point.type}</td><td className="text-right tabular-nums">{number(point.quantity)}</td></tr>)}</tbody></table></div></details>
+      <details className="mt-4 text-xs text-slate-500"><summary className="w-fit cursor-pointer rounded py-1 focus-visible:outline-blue-600">View chart data</summary><div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-left"><caption className="sr-only">Monthly demand values for the selected time range</caption><thead><tr><th scope="col" className="py-2">Month</th><th scope="col">Series</th><th scope="col" className="text-right">Units</th></tr></thead><tbody>{points.map((point) => <tr key={`${point.type}-${point.date}`} className="border-t border-slate-100"><td className="py-2">{month(point.date)}</td><td>{point.type}</td><td className="text-right tabular-nums">{number(point.quantity)}</td></tr>)}</tbody></table></div></details>
     </div>
   )
 }
