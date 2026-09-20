@@ -5,6 +5,7 @@ import OperationsAgent from './components/OperationsAgent'
 import SupplyChainPanel from './components/SupplyChainPanel'
 import DemandForecastPage from './components/DemandForecastPage'
 import ProductionPage from './components/ProductionPage'
+import ReportsPage from './components/ReportsPage'
 import { FloatCard, SceneStage } from './components/FactoryScene'
 
 
@@ -751,59 +752,6 @@ function CardHeader({ title }) {
 
 
 // ============================================================
-// PLACEHOLDER PAGE
-// ============================================================
-
-function PlaceholderPage({ title }) {
-
-  return (
-
-    <div className="p-8">
-
-      <h1
-        className="
-          text-2xl
-          font-semibold
-          text-slate-900
-        "
-      >
-        {title}
-      </h1>
-
-      <p
-        className="
-          text-sm
-          text-slate-500
-          mt-2
-        "
-      >
-        This agent is currently being developed by another team member.
-      </p>
-
-
-      <div
-        className="
-          mt-8
-          bg-white
-          border
-          border-slate-200
-          rounded-xl
-          p-8
-        "
-      >
-
-        <p className="text-slate-400 text-sm">
-          Integration pending.
-        </p>
-
-      </div>
-
-    </div>
-  )
-}
-
-
-// ============================================================
 // MAIN APP
 // ============================================================
 
@@ -879,9 +827,7 @@ function App() {
       case 'reports':
 
         return (
-          <PlaceholderPage
-            title="Reports"
-          />
+          <ReportsPage />
         )
 
 

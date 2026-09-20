@@ -149,7 +149,32 @@ class DemandForecastAgentTests(unittest.TestCase):
         codes = {issue["code"] for issue in quality["issues"]}
         self.assertIn("multiple_records_per_month", codes)
         self.assertIn("inconsistent_product_names", codes)
-        self.assertTrue(quality["can_forecast"])
+        self.assertFalse(quality["can_forecast"])
+        self.assertEqual(quality["status"], "blocked")
+
+    def test_duplicate_month_blocks_model_and_audit_until_resolved(self):
+        from unittest.mock import patch
+        from copy import deepcopy
+        for quantity in (700, 50):
+            with self.subTest(quantity=quantity):
+                duplicate = {"_id": "duplicate", "sku": "GAR-003", "product_name": "Navy Formal Shirt", "date": datetime(2026, 3, 20), "quantity": quantity}
+                forecast_agent.demand_collection.records.append(duplicate)
+                before = deepcopy(forecast_agent.demand_collection.records)
+                try:
+                    with patch.object(forecast_agent, '_fit_holt') as fit, patch.object(forecast_agent, '_save_audit') as audit:
+                        result = forecast_agent.forecast_demand("GAR-003")
+                        self.assertEqual(result["error_code"], "multiple_records_per_month")
+                        self.assertNotIn("predictions", result)
+                        fit.assert_not_called()
+                        audit.assert_not_called()
+                    issue = next(i for i in result["data_quality"]["issues"] if i["code"] == "multiple_records_per_month")
+                    self.assertEqual(issue["severity"], "error")
+                    self.assertEqual(issue["month"], "2026-03")
+                    self.assertIn("duplicate", issue["record_ids"])
+                    self.assertEqual(before, forecast_agent.demand_collection.records)
+                finally:
+                    forecast_agent.demand_collection.records.pop()
+        self.assertEqual(forecast_agent.forecast_demand("GAR-003", save_audit=False)["status"], "success")
 
     def test_missing_month_blocks_forecast(self):
         forecast_agent.demand_collection.records[-1]["date"] = datetime(2026, 4, 1)
