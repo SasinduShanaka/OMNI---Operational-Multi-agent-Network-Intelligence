@@ -324,4 +324,4 @@ uniSlot/
 .mcp.json
 
 # RAG vector store (rebuild with: python knowledge/build_index.py)
-knowledge/chroma_store/
+# knowledge/chroma_store/
