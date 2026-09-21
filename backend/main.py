@@ -712,7 +712,7 @@ def _process_ask(request: AskRequest):
 @app.get("/forecast/data-quality/{sku}")
 def demand_quality(sku: str):
     try:
-        from agents.forecast_agent import get_demand_quality
+        from backend.mcp.factory_operations.client import get_demand_quality
         return get_demand_quality(sku)
     except ValueError as error:
         raise HTTPException(status_code=400, detail={"message": str(error)})
@@ -723,7 +723,7 @@ def demand_quality(sku: str):
 @app.get("/forecast/products")
 def forecast_products():
     try:
-        from agents.forecast_agent import get_forecast_products
+        from backend.mcp.factory_operations.client import get_forecast_products
         return {"products": get_forecast_products()}
     except Exception:
         raise HTTPException(status_code=503, detail={"message": "Unable to load products from MongoDB. Check database connectivity and MONGO_URI."})
@@ -731,8 +731,8 @@ def forecast_products():
 
 @app.post("/forecast")
 def demand_forecast(request: ForecastRequest):
-    """Send a demand-forecast request directly to the Forecast Agent."""
-    from agents.forecast_agent import forecast_demand
+    """Send a demand-forecast request through the Factory Operations MCP server."""
+    from backend.mcp.factory_operations.client import forecast_demand
 
     result = forecast_demand(request.sku, request.periods, request.save_audit)
 
@@ -751,7 +751,7 @@ def demand_forecast(request: ForecastRequest):
 def inventory():
 
     try:
-        from agents.inventory_agent import check_inventory
+        from backend.mcp.factory_operations.client import check_inventory
 
         return check_inventory()
 
@@ -775,7 +775,7 @@ def inventory():
 def add_inventory(request: InventoryCreateRequest):
 
     try:
-        from agents.inventory_agent import add_inventory_item
+        from backend.mcp.factory_operations.client import add_inventory_item
 
         return add_inventory_item(
             material_name=request.material_name,
@@ -813,7 +813,7 @@ def add_inventory(request: InventoryCreateRequest):
 def low_stock():
 
     try:
-        from agents.inventory_agent import get_low_stock
+        from backend.mcp.factory_operations.client import get_low_stock
 
         return get_low_stock()
 
@@ -844,7 +844,7 @@ def material(request: MaterialRequest):
         )
 
     try:
-        from agents.inventory_agent import get_material
+        from backend.mcp.factory_operations.client import get_material
 
         result = get_material(
             material_name=request.material_name,
@@ -884,7 +884,7 @@ def material(request: MaterialRequest):
 def total_stock():
 
     try:
-        from agents.inventory_agent import get_total_stock
+        from backend.mcp.factory_operations.client import get_total_stock
 
         return get_total_stock()
 
@@ -907,7 +907,7 @@ def total_stock():
 def production_lines():
 
     try:
-        from agents.production_agent import get_all_lines
+        from backend.mcp.factory_operations.client import get_all_lines
 
         return get_all_lines()
 
@@ -931,7 +931,7 @@ def production_lines():
 def production_utilization():
 
     try:
-        from agents.production_agent import get_line_utilization
+        from backend.mcp.factory_operations.client import get_line_utilization
 
         return get_line_utilization()
 
@@ -955,7 +955,7 @@ def production_utilization():
 def production_bottlenecks():
 
     try:
-        from agents.production_agent import identify_bottlenecks
+        from backend.mcp.factory_operations.client import identify_bottlenecks
 
         return identify_bottlenecks()
 
@@ -979,7 +979,7 @@ def production_bottlenecks():
 def production_orders():
 
     try:
-        from agents.production_agent import get_production_orders
+        from backend.mcp.factory_operations.client import get_production_orders
 
         return get_production_orders()
 
@@ -1003,7 +1003,7 @@ def production_orders():
 def production_order_progress(order_id: str):
 
     try:
-        from agents.production_agent import get_production_progress
+        from backend.mcp.factory_operations.client import get_production_progress
 
         result = get_production_progress(
             order_id=order_id,
@@ -1036,7 +1036,7 @@ def production_order_progress(order_id: str):
 
 
 # ============================================================
-# PRODUCTION — FEASIBILITY (PRODUCTION -> INVENTORY AGENT)
+# PRODUCTION — FEASIBILITY THROUGH FACTORY OPERATIONS MCP
 # ============================================================
 
 @app.post("/production/feasibility")
@@ -1057,7 +1057,7 @@ def production_feasibility(request: FeasibilityRequest):
         )
 
     try:
-        from agents.production_agent import check_production_feasibility
+        from backend.mcp.factory_operations.client import check_production_feasibility
 
         result = check_production_feasibility(
             sku=request.sku,
@@ -1099,7 +1099,7 @@ def production_feasibility(request: FeasibilityRequest):
 def production_kpis():
 
     try:
-        from agents.production_agent import get_production_kpis
+        from backend.mcp.factory_operations.client import get_production_kpis
 
         return get_production_kpis()
 
@@ -1123,7 +1123,7 @@ def production_kpis():
 def production_summary():
 
     try:
-        from agents.production_agent import get_production_summary
+        from backend.mcp.factory_operations.client import get_production_summary
 
         return get_production_summary()
 
@@ -1147,7 +1147,7 @@ def production_summary():
 def production_products():
 
     try:
-        from agents.production_agent import get_producible_products
+        from backend.mcp.factory_operations.client import get_producible_products
 
         return get_producible_products()
 

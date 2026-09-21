@@ -10,7 +10,8 @@ from uuid import uuid4
 from bson import ObjectId
 from pymongo import MongoClient, ReturnDocument, timeout
 
-from agents.report_agent import build_report, utcnow
+from agents.report_agent import utcnow
+from backend.mcp.factory_operations.client import generate_management_report as build_report
 
 logger = logging.getLogger(__name__)
 COLOMBO = timezone(timedelta(hours=5, minutes=30), name="Asia/Colombo")

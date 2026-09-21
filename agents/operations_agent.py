@@ -14,7 +14,7 @@ try:
 except ImportError:
     Groq = None
 
-from agents.inventory_agent import (
+from backend.mcp.factory_operations.client import (
     add_inventory_item,
     get_all_inventory,
     get_low_stock,
@@ -27,11 +27,9 @@ from agents.inventory_agent import (
     get_inventory_summary,
     get_largest_shortages,
     get_inventory_kpis,
-)
-from agents.forecast_agent import forecast_all_demand, forecast_demand, get_forecast_products
-from agents.forecast_product import resolve_forecast_product
-
-from agents.production_agent import (
+    forecast_all_demand,
+    forecast_demand,
+    get_forecast_products,
     get_all_lines,
     identify_bottlenecks,
     get_production_orders,
@@ -39,6 +37,7 @@ from agents.production_agent import (
     get_product_materials,
     check_production_feasibility,
 )
+from agents.forecast_product import resolve_forecast_product
 
 # ============================================================
 # ENVIRONMENT
