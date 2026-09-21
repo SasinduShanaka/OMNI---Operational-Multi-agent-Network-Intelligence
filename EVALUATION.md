@@ -3,10 +3,11 @@
 ## Before the demonstration
 
 1. Start the backend and frontend using the commands in README.md.
-2. In Ask Omni, expand **Service status** and select **Check services**.
-3. Confirm that MongoDB contains products, inventory, BOM, production lines, and demand history. Supplier and shipment records currently come from the local ERP/TMS SQLite databases; the panel identifies these sources.
-4. Resolve missing records before the demonstration. Do not rerun seed scripts against a populated database without checking their deletion/reset behavior.
-5. Use a product that exists in your database. The examples below use Classic Black Polo / GAR-001. Quantities and results depend on current records.
+2. Create an evaluator account or sign in with an existing account. Do not share a real user's password.
+3. In Ask Omni, expand **Service status** and select **Check services**.
+4. Confirm that MongoDB contains products, inventory, BOM, production lines, and demand history. Supplier and shipment records currently come from the local ERP/TMS SQLite databases; the panel identifies these sources.
+5. Resolve missing records before the demonstration. Do not rerun seed scripts against a populated database without checking their deletion/reset behavior.
+6. Use a product that exists in your database. The examples below use Classic Black Polo / GAR-001. Quantities and results depend on current records.
 
 The language-model and email checks validate configuration only. They do not contact the provider or send test emails. A configured service can still fail because of connectivity, quotas, authentication, or an unverified sender.
 

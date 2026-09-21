@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { SceneStage } from './FactoryScene'
+import { apiFetch } from '../api/http'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -33,7 +34,7 @@ function InventoryPage() {
     setError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/inventory`)
+      const response = await apiFetch(`${API_BASE_URL}/inventory`)
 
       if (!response.ok) {
         throw new Error('Failed to load inventory')
@@ -170,7 +171,7 @@ function InventoryPage() {
     setIsSaving(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/inventory`, {
+      const response = await apiFetch(`${API_BASE_URL}/inventory`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

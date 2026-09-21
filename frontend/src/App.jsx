@@ -6,7 +6,10 @@ import SupplyChainPanel from './components/SupplyChainPanel'
 import DemandForecastPage from './components/DemandForecastPage'
 import ProductionPage from './components/ProductionPage'
 import ReportsPage from './components/ReportsPage'
+import AuthPage from './components/AuthPage'
 import { FloatCard, SceneStage } from './components/FactoryScene'
+import { authApi } from './api/authApi'
+import { apiFetch, getAccessToken } from './api/http'
 
 
 // ============================================================
@@ -31,7 +34,7 @@ const NAV_ITEMS = [
 ]
 
 
-function TopNav({ activePage, setActivePage }) {
+function TopNav({ activePage, setActivePage, user, onLogout }) {
 
   return (
 
@@ -126,25 +129,17 @@ function TopNav({ activePage, setActivePage }) {
         {/* STATUS */}
         {/* ============================================== */}
 
-        <div
-          className="
-            hidden
-            flex-shrink-0
-            items-center
-            gap-2
-            rounded-full
-            border
-            border-slate-200
-            bg-slate-50
-            px-3
-            py-1.5
-            text-xs
-            text-slate-600
-            lg:flex
-          "
-        >
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          All 6 agents synced
+        <div className="flex flex-shrink-0 items-center gap-2 border-l border-slate-200 pl-3">
+          <div className="hidden min-w-0 text-right xl:block">
+            <p className="max-w-36 truncate text-xs font-semibold text-slate-800">{user.name}</p>
+            <p className="max-w-36 truncate text-[10px] text-slate-500">{user.email}</p>
+          </div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold uppercase text-blue-800" title={`${user.name} (${user.email})`}>
+            {user.name?.charAt(0) || 'U'}
+          </div>
+          <button type="button" onClick={onLogout} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
+            Sign out
+          </button>
         </div>
 
       </div>
@@ -197,7 +192,7 @@ function DashboardPage({ setActivePage }) {
 
     try {
 
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_BASE_URL}/health`
       )
 
@@ -757,6 +752,9 @@ function CardHeader({ title }) {
 
 function App() {
 
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+
   const [activePage, setActivePage] = useState(
     'dashboard'
   )
@@ -769,6 +767,45 @@ function App() {
     isAsking: false,
     error: '',
   })
+
+  useEffect(() => {
+    let active = true
+    async function restoreSession() {
+      if (!getAccessToken()) {
+        setAuthLoading(false)
+        return
+      }
+      try {
+        const currentUser = await authApi.currentUser()
+        if (active) setUser(currentUser)
+      } catch {
+        if (active) setUser(null)
+      } finally {
+        if (active) setAuthLoading(false)
+      }
+    }
+    restoreSession()
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    function expireSession() {
+      setUser(null)
+      setChatState({ draft: '', messages: [], isAsking: false, error: '' })
+    }
+    window.addEventListener('omni:session-expired', expireSession)
+    return () => window.removeEventListener('omni:session-expired', expireSession)
+  }, [])
+
+  async function handleLogout() {
+    try {
+      await authApi.logout()
+    } finally {
+      setUser(null)
+      setActivePage('dashboard')
+      setChatState({ draft: '', messages: [], isAsking: false, error: '' })
+    }
+  }
 
 
   function renderPage() {
@@ -842,6 +879,14 @@ function App() {
   }
 
 
+  if (authLoading) {
+    return <div className="flex h-[100dvh] items-center justify-center bg-slate-950 text-white"><div className="flex items-center gap-3"><span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400" /><span className="text-sm font-medium">Restoring your session...</span></div></div>
+  }
+
+  if (!user) {
+    return <AuthPage onAuthenticated={setUser} />
+  }
+
   return (
 
     <div
@@ -857,6 +902,8 @@ function App() {
       <TopNav
         activePage={activePage}
         setActivePage={setActivePage}
+        user={user}
+        onLogout={handleLogout}
       />
 
 

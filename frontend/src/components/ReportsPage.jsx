@@ -3,6 +3,7 @@ import ManagementReport, { ReportStatus } from './ManagementReport'
 import { reportDate } from './reportFormatting'
 import { createChatReportPreview } from './chatReports'
 import ForecastPdfPreview from './ForecastPdfPreview'
+import { apiFetch } from '../api/http'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const domains = [['inventory', 'Inventory'], ['forecast', 'Demand forecast'], ['production', 'Production'], ['supply_chain', 'Supply chain']]
@@ -10,7 +11,7 @@ const button = 'rounded-lg bg-[#193e36] px-4 py-2 text-sm font-semibold text-whi
 const field = 'mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900'
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API}/reports${path}`, { ...options, headers: { 'Content-Type': 'application/json' } })
+  const response = await apiFetch(`${API}/reports${path}`, { ...options, headers: { 'Content-Type': 'application/json' } })
   const data = await response.json()
   if (!response.ok) {
     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.map((item) => item.msg).join('; ')

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { SceneStage } from './FactoryScene'
+import { apiFetch } from '../api/http'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -136,10 +137,10 @@ function ProductionPage() {
 
     try {
       const [linesRes, ordersRes, kpisRes, productsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/production/lines`),
-        fetch(`${API_BASE_URL}/production/orders`),
-        fetch(`${API_BASE_URL}/production/kpis`),
-        fetch(`${API_BASE_URL}/production/products`),
+        apiFetch(`${API_BASE_URL}/production/lines`),
+        apiFetch(`${API_BASE_URL}/production/orders`),
+        apiFetch(`${API_BASE_URL}/production/kpis`),
+        apiFetch(`${API_BASE_URL}/production/products`),
       ])
 
       if (!linesRes.ok || !ordersRes.ok || !kpisRes.ok || !productsRes.ok) {
@@ -193,7 +194,7 @@ function ProductionPage() {
     setDecision(null)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/production/feasibility`, {
+      const response = await apiFetch(`${API_BASE_URL}/production/feasibility`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

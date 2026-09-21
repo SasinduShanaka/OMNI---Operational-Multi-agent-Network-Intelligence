@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { apiFetch } from '../api/http'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -18,7 +19,7 @@ export default function DemandDataQuality({ sku, result }) {
     setError('')
     async function check() {
       try {
-        const response = await fetch(`${API}/forecast/data-quality/${encodeURIComponent(sku)}`, { signal: controller.signal })
+        const response = await apiFetch(`${API}/forecast/data-quality/${encodeURIComponent(sku)}`, { signal: controller.signal })
         const data = await response.json()
         if (!response.ok) throw new Error(data?.detail?.message || 'Data-quality check failed.')
         setQuality(data)

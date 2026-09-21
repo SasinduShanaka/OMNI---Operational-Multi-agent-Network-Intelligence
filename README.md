@@ -45,8 +45,13 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
    Create a `.env` file in the `backend` directory (e.g., `backend/.env`) and add your required environment variables:
    ```env
    MONGO_URI="your_mongodb_connection_string"
+   # Recommended for stable authentication tokens across deployments.
+   AUTH_SECRET="generate-a-long-random-secret"
+   AUTH_TOKEN_TTL_HOURS=12
    # Add your OpenAI API key or other LLM provider keys here if needed
    ```
+
+   When `AUTH_SECRET` is omitted, OMNI creates a persistent signing secret in the MongoDB `system_config` collection. Set your own secret for production and keep it out of source control.
 
 6. **Run the FastAPI server:**
    ```powershell
@@ -74,6 +79,10 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
    npm run dev
    ```
    *The frontend will be available at the local URL provided by Vite.*
+
+### User accounts
+
+Open the frontend and select **Create account**. Accounts are stored in the MongoDB `users` collection. Passwords are stored as salted PBKDF2 hashes; the original password is never stored. After signing in, the browser sends a time-limited bearer token to protected backend routes. **Sign out** revokes the user's existing tokens.
 
 ---
 
