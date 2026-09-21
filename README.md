@@ -84,6 +84,22 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
 
 Open the frontend and select **Create account**. Accounts are stored in the MongoDB `users` collection. Passwords are stored as salted PBKDF2 hashes; the original password is never stored. After signing in, the browser sends a time-limited bearer token to protected backend routes. **Sign out** revokes the user's existing tokens.
 
+### MCP architecture
+
+OMNI uses LangGraph to route work and maintain workflow state. Agents access operational tools through three MCP servers:
+
+- **Factory Operations MCP:** inventory, demand forecasting, production planning, and management reports backed by MongoDB.
+- **ERP MCP:** supplier lookup and purchase-order operations backed by the local demonstration ERP database.
+- **TMS MCP:** carrier, shipment booking, and tracking operations backed by the local demonstration TMS database.
+
+The Factory Operations server uses FastMCP's in-memory transport when called by the local backend, so no additional process is required during normal startup. It can also run as a standalone stdio MCP server:
+
+```powershell
+python -m backend.mcp.factory_operations.server
+```
+
+See [`mcp_architecture.md`](mcp_architecture.md) for the tool boundaries and communication flow.
+
 ---
 
 ## Core Technologies
