@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import OmniMark from '../OmniMark'
 import { supplyChainApi } from '../../api/supplyChainApi'
 
 // ── Star rating helper ─────────────────────────────────────────────
@@ -544,7 +545,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 bg-[#0f172a] text-white flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex items-center justify-center text-sm font-bold shadow">O</div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow"><OmniMark size={22} /></div>
           <div>
             <div className="font-bold text-sm">Omni Copilot</div>
             <div className="text-xs text-white/60">Procurement Assistant</div>
@@ -580,7 +581,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
             {msg.role === 'omni' && (
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#eff6ff] ring-1 ring-[#bfdbfe]"><OmniMark size={16} /></div>
             )}
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'bg-[#0f172a] text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm' : ''}`}>
               {msg.role !== 'user' && <p className="text-sm text-gray-700 leading-relaxed">{msg.content}</p>}
@@ -626,7 +627,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
 
         {isTyping && (
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#eff6ff] ring-1 ring-[#bfdbfe]"><OmniMark size={16} /></div>
             <div className="flex items-center gap-2 text-xs text-gray-400 bg-white rounded-xl px-4 py-2.5 shadow-sm border border-gray-100">
               <svg className="animate-spin w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

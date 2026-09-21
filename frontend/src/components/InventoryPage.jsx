@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { SceneStage } from './FactoryScene'
+import { ScenePage, SkeletonCard, SkeletonStatRow, SkeletonTable } from './FactoryScene'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -93,28 +93,39 @@ function InventoryPage() {
 
   if (loading) {
     return (
-      <SceneStage scene="fabric">
-      <div className="mx-auto w-full max-w-[1280px] px-5 pb-8 pt-5">
+      <ScenePage
+        scene="fabric"
+        banner={
+          <div className="mx-auto w-full max-w-[1280px] px-5 pb-6">
 
-        <div className="inline-block rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+            <div className="inline-block rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            Inventory agent
-          </h1>
+              <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">
+                Fabric stock control
+              </h1>
 
-          <p className="mt-1 text-[11px] text-slate-500">
-            Real-time stock levels, thresholds and inventory analysis
-          </p>
+              <p className="mt-1 flex items-center gap-2 text-[12px] text-slate-500">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
+                Loading inventory...
+              </p>
 
-          <p className="mt-3 flex items-center gap-2 text-[12px] text-slate-500">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
-            Loading inventory...
-          </p>
+            </div>
+
+          </div>
+        }
+      >
+        <div className="mx-auto w-full max-w-[1280px] px-5 pb-10">
+
+          <SkeletonCard className="mb-3" lines={1} />
+
+          <div className="mb-3">
+            <SkeletonStatRow count={4} />
+          </div>
+
+          <SkeletonTable rows={8} columns={6} />
 
         </div>
-
-      </div>
-      </SceneStage>
+      </ScenePage>
     )
   }
 
@@ -123,27 +134,23 @@ function InventoryPage() {
   // --------------------------------------------------
 
   return (
-    <SceneStage scene="fabric">
-    <div className="mx-auto w-full max-w-[1280px] px-5 pb-8">
+    <ScenePage
+      scene="fabric"
+      banner={
+        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-6">
 
-      {/* ================================================ */}
-      {/* HEADER — over the fabric store scene */}
-      {/* ================================================ */}
+          <div className="rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 pt-5">
-
-          <div className="rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
-
-            <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-2">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
               Inventory intelligence
             </div>
 
-            <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
+            <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">
               Fabric stock control
             </h1>
 
-            <p className="text-sm text-[#64748b] mt-2">
+            <p className="mt-1 text-[12px] text-[#64748b]">
               Real-time stock levels, thresholds and ABC classification across the supply chain
             </p>
 
@@ -151,37 +158,40 @@ function InventoryPage() {
 
           <button
             className="
-              px-4
-              py-2.5
-              rounded-xl
+              rounded-lg
               bg-[#1d4ed8]
-              hover:bg-[#1e40af]
-              text-white
-              text-sm
+              px-3.5
+              py-2
+              text-[13px]
               font-medium
-              transition
+              text-white
               shadow-[0_10px_24px_rgba(29,78,216,0.35)]
+              transition
+              hover:bg-[#1e40af]
             "
           >
             + Manual reorder
           </button>
 
-      </div>
+        </div>
+      }
+    >
+    <div className="mx-auto w-full max-w-[1280px] px-5 pb-10">
 
-      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Stock health</p>
-            <h2 className="mt-1.5 text-lg font-semibold text-slate-900">{fillRate}% fill rate</h2>
+            <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-slate-900">{fillRate}% fill rate</h2>
           </div>
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-white px-3 py-2 border border-slate-200">
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
               <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Critical</div>
-              <div className="mt-1 text-lg font-semibold text-slate-900">{stockoutEvents}</div>
+              <div className="mt-0.5 text-[16px] font-semibold tabular-nums text-slate-900">{stockoutEvents}</div>
             </div>
-            <div className="rounded-xl bg-emerald-50 px-3 py-2 border border-emerald-100">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
               <div className="text-[10px] uppercase tracking-[0.16em] text-emerald-700">Healthy</div>
-              <div className="mt-1 text-lg font-semibold text-emerald-700">{healthyItems}</div>
+              <div className="mt-0.5 text-[16px] font-semibold tabular-nums text-emerald-700">{healthyItems}</div>
             </div>
           </div>
         </div>
@@ -195,14 +205,15 @@ function InventoryPage() {
       {error && (
 
         <div className="
-          mb-6
-          p-4
+          mb-3
+          px-3
+          py-2
           rounded-lg
           bg-red-50
           border
           border-red-200
           text-red-600
-          text-sm
+          text-[12px]
         ">
           {error}
         </div>
@@ -220,18 +231,18 @@ function InventoryPage() {
         md:grid-cols-2
         xl:grid-cols-4
         gap-4
-        mb-4
+        mb-3
       ">
 
         {/* Total SKUs */}
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Total SKUs
           </p>
 
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
+          <p className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
             {totalSKUs}
           </p>
 
@@ -240,13 +251,13 @@ function InventoryPage() {
 
         {/* Stockout */}
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Stockouts (30d)
           </p>
 
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
+          <p className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
             {stockoutEvents}
           </p>
 
@@ -255,13 +266,13 @@ function InventoryPage() {
 
         {/* Fill rate */}
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Avg. fill rate
           </p>
 
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
+          <p className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
             {fillRate}%
           </p>
 
@@ -270,13 +281,13 @@ function InventoryPage() {
 
         {/* Carrying cost */}
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
             Carrying cost
           </p>
 
-          <p className="mt-1.5 text-[20px] font-semibold tracking-tight tabular-nums text-slate-900">
+          <p className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
             —
           </p>
 
@@ -523,7 +534,7 @@ function InventoryPage() {
       </div>
 
     </div>
-    </SceneStage>
+    </ScenePage>
   )
 }
 
