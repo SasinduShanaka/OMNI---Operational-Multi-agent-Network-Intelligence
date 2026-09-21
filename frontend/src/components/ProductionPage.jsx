@@ -12,6 +12,11 @@ const API_BASE_URL = 'http://127.0.0.1:8000'
 // ============================================================
 
 const VERDICT_STYLES = {
+  NO_BOM: {
+    label: 'Bill of materials missing',
+    badge: 'bg-amber-100 text-amber-800',
+    panel: 'border-amber-200 bg-amber-50',
+  },
   FEASIBLE: {
     label: 'Feasible',
     badge: 'bg-emerald-100 text-emerald-700',

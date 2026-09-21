@@ -16,6 +16,20 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 
 
+def email_configuration_status():
+    required = ("BREVO_SMTP_USER", "BREVO_SMTP_PASS", "BREVO_SENDER_EMAIL")
+    missing = [key for key in required if not os.getenv(key, "").strip()
+               or os.getenv(key, "").startswith("your_")]
+    try:
+        port_valid = 1 <= int(os.getenv("BREVO_SMTP_PORT", "587")) <= 65535
+    except ValueError:
+        port_valid = False
+    if missing or not port_valid:
+        return {"status": "needs_attention", "message": "Supplier email is not configured. Check SMTP credentials, sender address, and port.",
+                "missing_settings": missing}
+    return {"status": "configured", "message": "SMTP settings configured. Delivery has not been tested."}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # HTML PO Email Template
 # ──────────────────────────────────────────────────────────────────────────────
@@ -242,6 +256,10 @@ def send_po_email(po_data: dict, supplier_email: str, notes: str = "") -> dict:
         dict: { "sent": True, "recipient": email } on success
               { "sent": False, "error": reason }   on failure
     """
+    configuration = email_configuration_status()
+    if configuration["status"] != "configured":
+        return {"sent": False, "error": configuration["message"]}
+
     smtp_host   = os.getenv("BREVO_SMTP_HOST", "smtp-relay.brevo.com")
     smtp_port   = int(os.getenv("BREVO_SMTP_PORT", "587"))
     smtp_user   = os.getenv("BREVO_SMTP_USER", "")
