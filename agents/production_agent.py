@@ -864,6 +864,27 @@ def check_production_feasibility(
         )
 
     # --------------------------------------------------------
+    # Procedure guidance (RAG over the SOP corpus)
+    # --------------------------------------------------------
+    #
+    # Retrieved on the basis of the situation, so an at-risk order
+    # is told about the utilisation rule and a clean one is not.
+
+    sop_notes, sop_unavailable = _sop_notes_for_order(
+        sku=resolved_sku,
+        quantity=quantity,
+        capacity=capacity,
+        reallocation=reallocation,
+        fabric=(product or {}).get("fabric"),
+    )
+
+    for note in sop_notes:
+        factors.append(f"{note['citation']}: {note['note']}")
+
+    if sop_unavailable:
+        factors.append(f"Procedure guidance unavailable — {sop_unavailable}")
+
+    # --------------------------------------------------------
     # Audit trail (§11)
     # --------------------------------------------------------
 
@@ -897,6 +918,8 @@ def check_production_feasibility(
         "materials": material_checks,
         "blocking_materials": blocking_materials,
         "reallocation": reallocation,
+        "sop_guidance": sop_notes,
+        "sop_guidance_available": not sop_unavailable,
         "requires_approval": status != "FEASIBLE",
         "factors": factors,
         "workflow": [
@@ -911,6 +934,123 @@ def check_production_feasibility(
             else capacity.get("message", "The order cannot be produced as requested.")
         ),
     }
+
+
+# ============================================================
+# SOP RETRIEVAL (RAG)
+# ------------------------------------------------------------
+# Capacity and BOM answer "is there room and material". The SOP
+# corpus answers "what does the process require", which is prose
+# and therefore retrieved rather than queried.
+# ============================================================
+
+SOP_CORPUS = "production_sops"
+
+
+def get_sop_guidance(question, sku=None, category=None, k=3):
+    """
+    Retrieve procedure passages relevant to `question`.
+
+    Returns {"available": bool, "passages": [...]} and, when the
+    index cannot be reached, the reason why. It never invents
+    guidance: an unavailable index yields no passages, so a caller
+    can tell "no rule applies" apart from "the index is down".
+    """
+
+    try:
+        from knowledge.retriever import search, summarise, cite
+
+    except Exception as error:
+
+        return {
+            "available": False,
+            "reason": f"Knowledge retriever unavailable: {error}",
+            "passages": [],
+        }
+
+    try:
+        hits = search(
+            question,
+            SOP_CORPUS,
+            filters={"category": category} if category else None,
+            k=k,
+        )
+
+    except Exception as error:
+
+        return {
+            "available": False,
+            "reason": f"SOP index unavailable: {error}. Run python knowledge/build_index.py",
+            "passages": [],
+        }
+
+    return {
+        "available": True,
+        "question": question,
+        "passages": [
+            {
+                "note":     summarise(hit),
+                "citation": cite(hit),
+                "doc_id":   hit.get("doc_id"),
+                "section":  hit.get("section"),
+                "source":   hit.get("source"),
+                "score":    hit.get("score"),
+            }
+            for hit in hits
+        ],
+    }
+
+
+def _sop_notes_for_order(sku, quantity, capacity, reallocation, fabric=None):
+    """
+    Build the SOP lookups that a feasibility verdict depends on, and
+    return one cited note per lookup that found something.
+
+    The questions are driven by the situation, not by the user: an
+    order at risk asks about the utilisation rule, an order with a
+    reallocation proposal asks about changeover cost.
+    """
+
+    lookups = [
+        (
+            f"sample size required to inspect a lot of {quantity:,} units and accept reject limit",
+            "Inspection",
+        ),
+    ]
+
+    if fabric:
+        lookups.append((
+            f"{fabric} fabric relaxation time required before spreading and cutting",
+            "Material preparation",
+        ))
+
+    if capacity.get("status") in ("AT_RISK", "INFEASIBLE"):
+        lookups.append((
+            "line running above 85 percent utilisation, overtime limits and bottleneck policy",
+            "Capacity policy",
+        ))
+
+    if reallocation and reallocation.get("candidates"):
+        lookups.append((
+            "changeover duration when moving a style to a different production line",
+            "Changeover",
+        ))
+
+    notes = []
+    unavailable_reason = None
+
+    for question, label in lookups:
+
+        guidance = get_sop_guidance(question, sku=sku, k=1)
+
+        if not guidance["available"]:
+            unavailable_reason = guidance.get("reason")
+            break
+
+        for passage in guidance["passages"]:
+            notes.append({**passage, "topic": label})
+
+    return notes, unavailable_reason
 
 
 # ============================================================

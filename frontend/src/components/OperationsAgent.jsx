@@ -8,6 +8,31 @@ import OmniMark, { OmniAvatar } from './OmniMark'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
+function compactWorkflow(workflow) {
+  const internalSupplyChainSteps = new Set([
+    'Sourcing Agent',
+    'Purchasing Agent',
+    'Freight Agent',
+    'Tracking Agent',
+  ])
+  const compacted = []
+
+  workflow.forEach((step) => {
+    if (internalSupplyChainSteps.has(step)) {
+      if (!compacted.includes('Supply Chain Agent')) {
+        compacted.push('Supply Chain Agent')
+      }
+      return
+    }
+
+    if (!compacted.includes(step)) {
+      compacted.push(step)
+    }
+  })
+
+  return compacted
+}
+
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const { draft, messages, isAsking, error } = chatState
@@ -177,8 +202,6 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     },
   ]
 
-  const suggestedQuestions = promptGroups.flatMap((group) => group.prompts)
-
   return (
     <ScenePage
       scene="overview"
@@ -283,6 +306,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                     setScQuery={setScQuery}
                     handleSend={handleSend}
                     isLatest={index === messages.length - 1 && !isAsking}
+                    isAsking={isAsking}
                   />
                 )}
 
@@ -526,11 +550,12 @@ function CopyButton({ value }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest }) {
+function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest, isAsking }) {
   if (!data) {
     return null
   }
 
+  const workflow = compactWorkflow(data.workflow || [])
   const answerShownInForecastCard = data.intent === 'demand_forecast'
     && data.result
     && isForecastUnavailable(data.result)
@@ -560,13 +585,13 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest }
           WORKFLOW
       ====================================================== */}
 
-      {data.workflow && data.workflow.length > 0 && (
+      {workflow.length > 0 && (
 
         <div className="mb-3">
 
           <div className="flex flex-wrap items-center gap-2">
 
-            {data.workflow.map((agent, index) => (
+            {workflow.map((agent, index) => (
 
               <React.Fragment key={`${agent}-${index}`}>
 
@@ -575,7 +600,7 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest }
                   {index === 0 ? 'Operations Agent' : agent}
                 </span>
 
-                {index < data.workflow.length - 1 && (
+                {index < workflow.length - 1 && (
                   <span className="text-[10px] text-slate-300">→</span>
                 )}
 
@@ -603,6 +628,35 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest }
         </div>
 
       )}
+
+      {data.intent === 'demand_forecast' && data.suggested_products?.length > 0 && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-3 text-sm font-semibold text-slate-700">{data.forecast_mode === 'comparison' ? 'Choose products to compare' : 'Choose a product to forecast'}</p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" disabled={isAsking}
+              onClick={() => handleSend(data.forecast_mode === 'comparison' ? 'Compare predicted demand with actual demand last month for all products' : `Forecast demand for all products for the next ${data.forecast_periods || 1} months`)}
+              className="rounded-xl border border-blue-700 bg-blue-700 px-4 py-3 text-left text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+              <span className="block text-sm font-semibold">All products</span>
+              <span className="mt-1 block text-xs text-blue-100">Entire product catalog</span>
+            </button>
+            {data.suggested_products.map((product) => (
+              <button key={product.sku} type="button" disabled={isAsking}
+                onClick={() => handleSend(data.forecast_mode === 'comparison' ? `Compare predicted demand with actual demand last month for ${product.product_name} (${product.sku})` : `Forecast demand for ${product.product_name} (${product.sku}) for the next ${data.forecast_periods || 1} months`)}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition hover:border-blue-500 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
+                <span className="block text-sm font-semibold text-blue-900">{product.product_name}</span>
+                <span className="mt-1 block text-xs text-blue-600">{product.sku}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data.comparisons && <div className="mt-4 space-y-3">{data.comparisons.map((row) => <div key={row.sku} className="rounded-xl border border-slate-200 p-4 text-sm">
+        {row.prediction_source && <p className="mb-2 text-xs font-semibold text-blue-700">{row.prediction_source}</p>}
+        <p className="font-semibold">{row.product_name || row.sku} · {row.period.slice(0, 7)}</p>
+        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{[['Actual units', row.actual], ['Predicted units', row.predicted], ['Error (predicted − actual)', row.error], ['Absolute error (%)', row.percentage_error]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold">{value == null ? 'N/A' : Number(value).toLocaleString()}</dd></div>)}</dl>
+        <p className="mt-3 text-xs text-slate-500">{row.note}</p>
+      </div>)}</div>}
 
       {data.intent === 'report_navigation' && (
         <button type="button" onClick={() => setActivePage('reports')} className="mt-3 rounded-lg bg-[#1f3a36] px-4 py-2 text-sm font-semibold text-white">Open Factory reports</button>
@@ -649,6 +703,29 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest }
 
       {data.intent === 'procurement' && data.data && (
         <OmniProcurementCard data={data.data} />
+      )}
+
+      {data.intent === 'low_stock_procurement' && data.results && (
+        <LowStockList results={data.results} />
+      )}
+
+      {data.intent === 'low_stock_procurement' && data.procurement && (
+        <div className="mt-4 space-y-4">
+          {data.procurement.map((item, index) => (
+            item.run ? (
+              <OmniProcurementCard
+                key={item.run.run_id || index}
+                data={item.run}
+                material={item.material}
+              />
+            ) : (
+              <SupplierSuggestionCard
+                key={`${item.material?.material_code || 'material'}-${index}`}
+                item={item}
+              />
+            )
+          ))}
+        </div>
       )}
 
       {/* ======================================================
@@ -948,6 +1025,7 @@ function ForecastCard({ result }) {
         </div>
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">{result.trend}</span>
       </div>
+      <ForecastMonths result={result} />
       <div className="mt-4 grid grid-cols-2 gap-4">
         <div><p className="text-xs text-slate-500">Next-month forecast</p><p className="mt-1 text-lg font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p></div>
         <div><p className="text-xs text-slate-500">History analyzed</p><p className="mt-1 text-lg font-semibold text-slate-900">{result.history_points} periods</p></div>
@@ -957,15 +1035,28 @@ function ForecastCard({ result }) {
 }
 
 
+function ForecastMonths({ result }) {
+  if (!result.predictions || result.predictions.length < 2) return null
+  return <div className="mt-4 w-full overflow-hidden rounded-lg border border-slate-200">
+    <p className="bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">{result.predictions.length}-month demand outlook</p>
+    <table className="w-full text-left text-sm">
+      <thead><tr className="text-slate-500"><th className="px-3 py-2">Month</th><th className="px-3 py-2 text-right">Predicted units</th></tr></thead>
+      <tbody>{result.predictions.map((point) => <tr key={point.date} className="border-t border-slate-100"><td className="px-3 py-2">{new Date(`${point.date.slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td><td className="px-3 py-2 text-right">{Number(point.quantity).toLocaleString()}</td></tr>)}</tbody>
+    </table>
+    <p className="px-3 py-2 text-xs text-slate-500">Forecast periods follow the latest recorded demand month.</p>
+  </div>
+}
+
 function ForecastList({ results }) {
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="border-b border-slate-100 px-4 py-3"><p className="text-sm font-semibold text-slate-800">Demand Forecast Agent results</p></div>
       <div className="divide-y divide-slate-100">
         {results.map((result) => (
-          <div key={result.sku} className="flex items-center justify-between gap-4 px-4 py-3">
+          <div key={result.sku} className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
             <div><p className="text-sm font-medium text-slate-800">{result.product_name}</p><p className="mt-1 text-xs text-slate-500">{result.sku} · {result.trend}</p></div>
             <div className="text-right"><p className="text-sm font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p><p className="mt-1 text-xs text-slate-500">next month</p></div>
+            <ForecastMonths result={result} />
           </div>
         ))}
       </div>
@@ -1566,7 +1657,34 @@ function formatStatus(status) {
    Replace with the real UI once the intended design is available.
 ============================================================ */
 
-function OmniProcurementCard({ data }) {
+function SupplierSuggestionCard({ item }) {
+  const material = item.material || {}
+  const supplier = item.supplier || {}
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-700 shadow-sm">
+      <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Supplier match</p>
+        <p className="mt-1 font-semibold text-slate-900">{material.material_name || 'Low-stock material'}</p>
+      </div>
+      {item.error ? (
+        <div className="px-4 py-3 text-xs text-red-700">{item.error}</div>
+      ) : (
+        <div className="grid gap-3 p-4 md:grid-cols-2">
+          <Detail label="Suggested Supplier" value={supplier.supplier_name || '-'} />
+          <Detail label="Country" value={supplier.country || '-'} />
+          <Detail label="Rating" value={supplier.rating !== undefined ? Number(supplier.rating).toFixed(1) : '-'} />
+          <Detail label="Lead Time" value={supplier.lead_time_days ? `${supplier.lead_time_days} days` : '-'} />
+          <Detail label="Shortage" value={material.shortage ? `${Number(material.shortage).toLocaleString()} ${material.unit || 'units'}` : '-'} />
+          <Detail label="Category" value={formatStatus(item.material_type || 'unknown')} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+function OmniProcurementCard({ data, material }) {
   const supplier = data.supplier || {}
   const po = data.po || {}
   const [status, setStatus] = useState(data.status || 'unknown')
@@ -1585,10 +1703,15 @@ function OmniProcurementCard({ data }) {
 
     try {
       const result = await supplyChainApi.approvePo(data.run_id, 'Human Manager')
+      const emailMessage = result.email_sent
+        ? ` PO email sent to ${result.email_recipient}.`
+        : result.email_error
+          ? ` Email not sent: ${result.email_error}`
+          : ''
       setStatus('completed')
       setActionResult({
         type: 'approved',
-        message: 'Approved. Freight booking has been started for this purchase order.',
+        message: `Approved. Freight booking has been started for this purchase order.${emailMessage}`,
         details: result,
       })
     } catch (error) {
@@ -1626,7 +1749,9 @@ function OmniProcurementCard({ data }) {
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#0369a1]">Procurement run</p>
           <p className="mt-1 font-semibold text-slate-900">
-            {supplier.supplier_name || 'Supplier selected'}
+            {material?.material_name
+              ? `${material.material_name} -> ${supplier.supplier_name || 'Supplier selected'}`
+              : supplier.supplier_name || 'Supplier selected'}
           </p>
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -1663,10 +1788,10 @@ function OmniProcurementCard({ data }) {
       {isAwaitingApproval && (
         <div className="border-t border-slate-100 bg-[#ffffff] px-4 py-4">
           <p className="text-sm font-semibold text-slate-900">
-            Ready for your approval
+            Manual approval required
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            Authorize this PO to continue with freight booking, or reject it to stop the pipeline.
+            This purchase order is only a draft. Authorize it to continue with freight booking, or reject it to stop the pipeline.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button

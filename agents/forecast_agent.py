@@ -64,7 +64,7 @@ def analyze_demand_records(sku, records):
             if not math.isfinite(quantity) or quantity < 0:
                 raise ValueError("Invalid quantity")
         except (KeyError, TypeError, ValueError, OverflowError):
-            issue("invalid_quantity", "error", "Quantity must be a finite nonnegative number. This record is excluded.", [identifier])
+            issue("invalid_quantity", "error", "Quantity must be a finite nonnegative number. This record is excluded.", [identifier], observed.strftime('%Y-%m') if observed is not None else None)
             invalid_ids.add(index)
         if index in invalid_ids:
             continue
@@ -185,6 +185,17 @@ def forecast_demand(sku: str, periods: int = 1, save_audit: bool = True) -> dict
         "recommendation": _recommendation(trend, predictions[0]["quantity"]),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Ground the brief in the market corpus (RAG)
+    market = get_market_context(
+        sku=normalized_sku,
+        product_name=result["product_name"],
+        trend=trend,
+        period=predictions[0]["date"],
+    )
+    result["market_context"] = market.get("passages", [])
+    result["market_context_available"] = market.get("available", False)
+    result["recommendation"] = _ground_recommendation(result["recommendation"], market)
     result["audit_saved"] = _save_audit(result) if save_audit else False
     return result
 
@@ -239,6 +250,7 @@ def _save_audit(result: dict[str, Any]) -> bool:
             "agent": "Demand Forecast Agent", "action": "Demand forecast generated",
             "message_type": "PREDICTION", "sku": result["sku"], "forecast": result["forecast"],
             "forecast_period": result["forecast_period"], "trend": result["trend"],
+            "predictions": result.get("predictions", []),
             "model": result["model"], "smoothing_parameters": result["smoothing_parameters"],
             "accuracy": result["accuracy"],
             "timestamp": datetime.now(timezone.utc),
@@ -298,6 +310,133 @@ def _recommendation(trend: str, forecast: float) -> str:
     if trend == "Decreasing":
         return "Review the production plan before committing additional material purchases."
     return "Maintain the current production plan and monitor demand for changes."
+
+
+# ============================================================
+# MARKET CONTEXT RETRIEVAL (RAG)
+# ------------------------------------------------------------
+# Holt's linear trend knows demand moved. It cannot know why.
+# The market corpus holds buyer calendars, promotion plans and
+# raw-material notes — prose that explains the movement, so the
+# planning brief can cite a driver instead of asserting one.
+# ============================================================
+
+MARKET_CORPUS = "market_context"
+
+
+def get_market_context(sku: str, product_name: str | None = None, trend: str = "Stable", period: str | None = None, k: int = 3) -> dict:
+    """
+    Retrieve the buyer and market notes that bear on this SKU's
+    movement.
+
+    Returns {"available": bool, "passages": [...]}. When the index
+    is unreachable the passage list is empty and `reason` says why —
+    the forecast still returns, it simply carries no context.
+    """
+
+    try:
+        from knowledge.retriever import search, summarise, cite
+    except Exception as error:
+        return {"available": False, "reason": f"Knowledge retriever unavailable: {error}", "passages": []}
+
+    month = ""
+    if period:
+        try:
+            month = datetime.fromisoformat(str(period)[:10]).strftime("%B")
+        except Exception:
+            month = ""
+
+    direction = {
+        "Increasing": "rising demand, promotion or programme driving an uplift",
+        "Decreasing": "falling demand, seasonal trough or a structural decline",
+    }.get(trend, "steady demand and the seasonal pattern")
+
+    # Lead with the product so the discriminative term carries weight;
+    # the trend phrasing alone matches whichever note talks most about
+    # promotions, whatever product it concerns.
+    question = " ".join(part for part in [
+        product_name or sku,
+        sku,
+        direction,
+        f"in {month}" if month else "",
+    ] if part)
+
+    try:
+        # Over-fetch, then re-rank on metadata: a buyer note scoped to
+        # other SKUs is not evidence about this one, however close it
+        # sits in embedding space.
+        hits = _rerank_for_sku(search(question, MARKET_CORPUS, k=max(k * 3, 9)), sku, k)
+    except Exception as error:
+        return {
+            "available": False,
+            "reason": f"Market index unavailable: {error}. Run python knowledge/build_index.py",
+            "passages": [],
+        }
+
+    return {
+        "available": True,
+        "question": question,
+        "passages": [
+            {
+                "note":     summarise(hit),
+                "citation": cite(hit),
+                "doc_id":   hit.get("doc_id"),
+                "title":    hit.get("title"),
+                "buyer":    hit.get("buyer"),
+                "section":  hit.get("section"),
+                "source":   hit.get("source"),
+                "score":    hit.get("score"),
+            }
+            for hit in hits
+        ],
+    }
+
+
+def _rerank_for_sku(hits: list[dict], sku: str, k: int) -> list[dict]:
+    """
+    Metadata-aware re-rank of semantic hits.
+
+    Buyer documents declare the SKUs they cover. A note scoped to a
+    different SKU is dropped outright; a note that names this SKU is
+    promoted above the unscoped market-wide notes.
+    """
+
+    ranked = []
+
+    for hit in hits:
+
+        scoped = hit.get("skus")
+
+        if scoped:
+            covered = [value.strip().upper() for value in str(scoped).split(",")]
+            if sku.upper() not in covered:
+                continue                      # written about another product
+            hit = {**hit, "score": round(hit.get("score", 0) + 0.15, 3), "scoped": True}
+        else:
+            hit = {**hit, "scoped": False}    # market-wide note, still relevant
+
+        ranked.append(hit)
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+
+    return ranked[:k]
+
+
+def _ground_recommendation(recommendation: str, context: dict) -> str:
+    """
+    Append the strongest retrieved driver to the planning brief.
+    Nothing is appended when retrieval found nothing relevant, so
+    the brief never implies evidence it does not have.
+    """
+
+    passages = context.get("passages") or []
+
+    if not passages:
+        return recommendation
+
+    best = passages[0]
+
+    return f"{recommendation} Context — {best['note']} ({best['citation']})"
 
 
 def _normalize_sku(sku: str | None) -> str | None:

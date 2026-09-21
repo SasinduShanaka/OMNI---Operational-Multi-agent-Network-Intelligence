@@ -225,7 +225,7 @@ export async function createChatReport(data) {
     if (forecast) metrics([['NEXT MONTH / UNITS', number(forecast.forecast)], ['HISTORY / MONTHS', number(forecast.history_points)], ['TREND', clean(forecast.trend || 'N/A')]])
     section(data.status === 'error' || data.result?.status === 'error' ? 'Analysis unavailable / Data issues' : 'Executive summary')
     write(data.answer || 'The available analysis is presented below.')
-    for (const key of ['summary', 'result', 'results', 'data', 'risks', 'recommendations']) {
+    for (const key of ['summary', 'result', 'results', 'comparisons', 'data', 'risks', 'recommendations']) {
       if (data[key] != null) details(data[key], label(key))
     }
   }

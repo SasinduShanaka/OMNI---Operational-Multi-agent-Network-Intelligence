@@ -361,7 +361,12 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
     try {
       const result = await supplyChainApi.approvePo(runId, 'Human Manager')
       setIsTyping(false)
-      pushOmni('shipment_card', 'PO authorized! Freight booked and shipment is underway.', result)
+      const emailMessage = result.email_sent
+        ? ` PO email sent to ${result.email_recipient}.`
+        : result.email_error
+          ? ` Email not sent: ${result.email_error}`
+          : ''
+      pushOmni('shipment_card', `PO authorized! Freight booked and shipment is underway.${emailMessage}`, result)
       setPhase('done')
       if (onPipelineComplete) onPipelineComplete()
     } catch (err) {

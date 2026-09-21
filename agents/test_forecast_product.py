@@ -20,6 +20,35 @@ PRODUCTS = [
 
 
 class ProductSelectionTests(unittest.TestCase):
+    def test_last_month_comparison_keeps_mode_and_product_choices(self):
+        result = resolve_forecast_product('Compare predicted demand with actual demand last month', PRODUCTS)
+        self.assertEqual(result['mode'], 'comparison')
+        self.assertEqual(result['status'], 'needs_information')
+        self.assertEqual(len(result['products']), 8)
+        result = resolve_forecast_product('Compare predicted demand with actual demand last month for black polo', PRODUCTS)
+        self.assertEqual(result['sku'], 'GAR-001')
+        self.assertEqual(result['mode'], 'comparison')
+
+    def test_month_horizons_and_invalid_ranges(self):
+        for duration in ['three months', '3 months', '3-month']:
+            result = resolve_forecast_product(f'Forecast black polo demand for the next {duration}', PRODUCTS)
+            self.assertEqual(result, {'status': 'matched', 'sku': 'GAR-001', 'periods': 3})
+        for duration in ['0 months', '13 months', '-3 months', '1.5 months', 'thirteen months']:
+            self.assertEqual(resolve_forecast_product(f'Forecast GAR-001 for {duration}', PRODUCTS)['status'], 'invalid_horizon')
+        result = resolve_forecast_product('Forecast t-shirt demand for six months', PRODUCTS)
+        self.assertEqual(result['periods'], 6)
+        self.assertEqual(result['status'], 'ambiguous')
+
+    def test_shirt_category_includes_polos_and_tshirts(self):
+        for question in ['Forecast Shirt demand.', 'Forecast shirts demand']:
+            result = resolve_forecast_product(question, PRODUCTS)
+            self.assertEqual(result['status'], 'ambiguous')
+            self.assertEqual({p['sku'] for p in result['products']},
+                             {'GAR-001', 'GAR-002', 'GAR-003', 'GAR-006', 'GAR-007'})
+        self.assertEqual(resolve_forecast_product('forecast black shirt demand', PRODUCTS)['sku'], 'GAR-001')
+        self.assertEqual(resolve_forecast_product('forecast polo demand', PRODUCTS)['sku'], 'GAR-001')
+        self.assertEqual(resolve_forecast_product('forecast black t-shirt demand', PRODUCTS)['status'], 'not_found')
+
     def test_conversational_questions_preserve_product_constraints(self):
         for question in [
             'can you say next month black polo shirt demand forecast',
@@ -49,6 +78,7 @@ class ProductSelectionTests(unittest.TestCase):
         self.assertEqual(result['status'], 'ambiguous')
         self.assertIn('GAR-002', result['message'])
         self.assertIn('GAR-007', result['message'])
+        self.assertEqual({item['sku'] for item in result['products']}, {'GAR-002', 'GAR-007'})
 
     def test_name_variants_resolve_same_product(self):
         for question in ["predict next month black polo shirts demand", "Forecast demand for Classic Black Polo", "black polos demand", "Black Polo shirt's demand next month"]:
@@ -84,9 +114,19 @@ class ProductSelectionTests(unittest.TestCase):
                      "forecast_demand": forecast, "forecast_all_demand": all_products}
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<specialist>', 'exec'), namespace)
         result = namespace['_execute_specialist_request']('can you say next month black polo shirt demand forecast')
-        forecast.assert_called_once_with('GAR-001')
+        forecast.assert_called_once_with('GAR-001', periods=1)
         all_products.assert_not_called()
         self.assertEqual(result['result']['message'], 'Missing history')
+        forecast.reset_mock()
+        result = namespace['_execute_specialist_request']('Forecast T-shirt demand')
+        self.assertEqual({item['sku'] for item in result['suggested_products']}, {'GAR-002', 'GAR-007'})
+        forecast.assert_not_called()
+        selected = result['suggested_products'][0]
+        namespace['_execute_specialist_request'](f"Forecast demand for {selected['product_name']} ({selected['sku']})")
+        forecast.assert_called_once_with(selected['sku'], periods=1)
+        forecast.reset_mock()
+        namespace['_execute_specialist_request']('Forecast black polo demand for the next three months')
+        forecast.assert_called_once_with('GAR-001', periods=3)
         forecast.reset_mock()
         result = namespace['_execute_specialist_request']('predict red polo shirts demand')
         self.assertEqual(result['status'], 'needs_information')
