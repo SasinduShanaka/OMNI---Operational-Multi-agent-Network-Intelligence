@@ -7,7 +7,7 @@ export default function ForecastAccuracy({ accuracy, sku }) {
   const maximum = Math.ceil(Math.max(1, ...rows.flatMap((row) => [row.actual, row.forecast])) / 400) * 400
   const x = (index) => rows.length === 1 ? 390 : 60 + index / (rows.length - 1) * 660
   const y = (value) => 210 - value / maximum * 170
-  return <section className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+  return <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
     <p className="mb-1 text-[10px] font-bold uppercase tracking-[.18em] text-blue-700">03 / Forecast performance</p>
     <h2 className="text-[13px] font-semibold tracking-tight">Forecast accuracy {sku && <span className="text-sm font-normal text-slate-500">{sku}</span>}</h2>
     <p className="mt-2 text-xs leading-6 text-slate-500">Compare simulated one-month-ahead predictions with actual demand in completed months.</p>

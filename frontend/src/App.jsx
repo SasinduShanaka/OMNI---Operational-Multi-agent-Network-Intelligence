@@ -7,6 +7,7 @@ import DemandForecastPage from './components/DemandForecastPage'
 import ProductionPage from './components/ProductionPage'
 import ReportsPage from './components/ReportsPage'
 import { FloatCard, SceneStage } from './components/FactoryScene'
+import OmniMark from './components/OmniMark'
 
 
 // ============================================================
@@ -22,7 +23,6 @@ const API_BASE_URL = 'http://127.0.0.1:8000'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦' },
-  { id: 'operations', label: 'Ask Omni', icon: '◯' },
   { id: 'inventory', label: 'Fabric stock', icon: '◇' },
   { id: 'forecast', label: 'Demand forecast', icon: '⌁' },
   { id: 'supplier', label: 'Supplier intel', icon: '▱' },
@@ -84,6 +84,50 @@ function TopNav({ activePage, setActivePage }) {
         {/* ============================================== */}
         {/* NAVIGATION PILLS */}
         {/* ============================================== */}
+
+        {/* ============================================== */}
+        {/* ASK OMNI — the way into every agent, so it is    */}
+        {/* not one pill among seven                         */}
+        {/* ============================================== */}
+
+        <button
+          onClick={() => setActivePage('operations')}
+          aria-current={activePage === 'operations' ? 'page' : undefined}
+          className={`
+            group
+            flex
+            flex-shrink-0
+            items-center
+            gap-2
+            rounded-xl
+            py-1.5
+            pl-1.5
+            pr-3.5
+            text-sm
+            font-medium
+            transition
+            ${
+              activePage === 'operations'
+                ? 'bg-gradient-to-r from-[#2563eb] to-[#1e40af] text-white shadow-[0_8px_20px_-6px_rgba(29,78,216,0.85)]'
+                : 'bg-[#eff6ff] text-[#1d4ed8] ring-1 ring-inset ring-[#bfdbfe] hover:bg-[#dbeafe]'
+            }
+          `}
+        >
+
+          <span className="relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white shadow-[0_2px_6px_-2px_rgba(15,23,42,0.35)]">
+            <OmniMark size={20} />
+            <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />
+            </span>
+          </span>
+
+          <span className="whitespace-nowrap">Ask Omni</span>
+
+        </button>
+
+        <span className="h-6 w-px flex-shrink-0 bg-slate-200" />
+
 
         <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
 
@@ -813,7 +857,7 @@ function App() {
       case 'supplier':
 
         return (
-          <SupplyChainPanel initialQuery={scQuery} clearQuery={() => setScQuery(null)} />
+          <SupplyChainPanel initialQuery={scQuery} clearQuery={() => setScQuery(null)} setActivePage={setActivePage} />
         )
 
 
@@ -872,7 +916,68 @@ function App() {
 
       </main>
 
+
+      {/* ================================================== */}
+      {/* ASK OMNI LAUNCHER — reachable from every page.      */}
+      {/* Hidden on Ask Omni itself, and on Supplier intel    */}
+      {/* where the procurement copilot already owns this     */}
+      {/* corner.                                             */}
+      {/* ================================================== */}
+
+      {activePage !== 'operations' && activePage !== 'supplier' && (
+        <OmniLauncher onClick={() => setActivePage('operations')} />
+      )}
+
     </div>
+  )
+}
+
+
+// ============================================================
+// OMNI LAUNCHER
+// ============================================================
+
+function OmniLauncher({ onClick }) {
+
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Ask Omni"
+      className="
+        group
+        fixed
+        bottom-6
+        right-6
+        z-40
+        flex
+        items-center
+        gap-2.5
+        rounded-full
+        bg-gradient-to-br from-[#1e3a8a] to-[#111f4d]
+        py-2
+        pl-2
+        pr-3
+        text-white
+        shadow-[0_18px_36px_-12px_rgba(29,78,216,0.85)]
+        transition
+        hover:pr-4
+        hover:shadow-[0_22px_44px_-12px_rgba(29,78,216,0.95)]
+      "
+    >
+
+      <span className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white shadow-[0_2px_8px_-2px_rgba(15,23,42,0.4)]">
+        <OmniMark size={26} />
+        <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-[#1e40af]" />
+        </span>
+      </span>
+
+      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium opacity-0 transition-all duration-300 group-hover:max-w-[120px] group-hover:opacity-100">
+        Ask Omni
+      </span>
+
+    </button>
   )
 }
 

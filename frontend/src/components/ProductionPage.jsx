@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { SceneStage } from './FactoryScene'
+import { ScenePage, SkeletonCard, SkeletonTable } from './FactoryScene'
+
+const BOTTLENECK_LABEL = '85%'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -75,7 +77,7 @@ function CircularStat({ label, value, sublabel, accent }) {
   const offset = circumference * (1 - pct / 100)
 
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+    <div className="flex items-center gap-4 rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
       <svg width="72" height="72" viewBox="0 0 72 72" className="shrink-0 -rotate-90">
         <circle cx="36" cy="36" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="7" />
         <circle
@@ -225,28 +227,53 @@ function ProductionPage() {
 
   if (loading) {
     return (
-      <SceneStage scene="production">
-      <div className="mx-auto w-full max-w-[1280px] px-5 pb-8 pt-5">
+      <ScenePage
+        scene="production"
+        banner={
+          <div className="mx-auto w-full max-w-[1280px] px-5 pb-6">
 
-        <div className="inline-block rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+            <div className="inline-block rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            Production agent
-          </h1>
+              <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">
+                Line planning
+              </h1>
 
-          <p className="mt-1 text-[11px] text-slate-500">
-            Line capacity, bottlenecks and order feasibility
-          </p>
+              <p className="mt-1 flex items-center gap-2 text-[12px] text-slate-500">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
+                Loading production data...
+              </p>
 
-          <p className="mt-3 flex items-center gap-2 text-[12px] text-slate-500">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1d4ed8]" />
-            Loading production data...
-          </p>
+            </div>
+
+          </div>
+        }
+      >
+        <div className="mx-auto w-full max-w-[1280px] px-5 pb-10">
+
+          <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr] xl:items-start">
+
+            <SkeletonCard className="h-[320px]" lines={6} />
+
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <SkeletonCard lines={2} />
+                <SkeletonCard lines={2} />
+                <SkeletonCard lines={2} />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <SkeletonCard lines={1} />
+                <SkeletonCard lines={1} />
+                <SkeletonCard lines={1} />
+              </div>
+              <SkeletonCard lines={3} />
+            </div>
+
+          </div>
+
+          <SkeletonTable rows={4} columns={4} />
 
         </div>
-
-      </div>
-      </SceneStage>
+      </ScenePage>
     )
   }
 
@@ -261,53 +288,53 @@ function ProductionPage() {
   // --------------------------------------------------
 
   return (
-    <SceneStage scene="production">
-    <div className="mx-auto w-full max-w-[1280px] px-5 pb-8">
+    <ScenePage
+      scene="production"
+      bannerMaxHeight="30rem"
+      banner={
+        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-6">
 
-      {/* ================================================ */}
-      {/* HEADER */}
-      {/* ================================================ */}
+          <div className="rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
 
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4 pt-6">
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+              Production intelligence
+            </div>
 
-        <div className="rounded-2xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+            <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">
+              Line planning
+            </h1>
 
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-            Production intelligence
+            <p className="mt-1 text-[12px] text-[#64748b]">
+              Capacity, bottlenecks and order feasibility across every production line
+            </p>
+
           </div>
 
-          <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
-            Line planning
-          </h1>
-
-          <p className="text-sm text-[#64748b] mt-2">
-            Capacity, bottlenecks and order feasibility across every production line
-          </p>
+          <button
+            onClick={loadProduction}
+            className="
+              rounded-lg
+              border
+              border-white/70
+              bg-white/85
+              px-3.5
+              py-2
+              text-[13px]
+              text-slate-700
+              shadow-[0_8px_20px_rgba(15,23,42,0.12)]
+              backdrop-blur-md
+              transition
+              hover:bg-white
+            "
+          >
+            ↻ Refresh
+          </button>
 
         </div>
-
-        <button
-          onClick={loadProduction}
-          className="
-            px-4
-            py-2.5
-            rounded-xl
-            bg-white/85
-            border
-            border-white/70
-            text-sm
-            text-slate-700
-            backdrop-blur-md
-            shadow-[0_8px_20px_rgba(15,23,42,0.12)]
-            hover:bg-white
-            transition
-          "
-        >
-          ↻ Refresh
-        </button>
-
-      </div>
+      }
+    >
+    <div className="mx-auto w-full max-w-[1280px] px-5 pb-10">
 
 
       {/* ================================================ */}
@@ -326,11 +353,11 @@ function ProductionPage() {
       {/* ================================================ */}
 
       {kpis && (
-        <div className="mb-4 grid grid-cols-1 gap-3 xl:grid-cols-[360px_1fr]">
+        <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr] xl:items-start">
 
           {/* STATUS RAIL */}
 
-          <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+          <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
               Factory status
@@ -354,7 +381,7 @@ function ProductionPage() {
               </span>
             </div>
 
-            <div className="mt-5 space-y-3 max-h-[340px] overflow-y-auto pr-1">
+            <div className="mt-5 space-y-4 max-h-[340px] overflow-y-auto pr-1">
               {lines.map((line) => (
                 <div key={line.line_id} className="rounded-xl border border-slate-100 p-3">
 
@@ -389,29 +416,41 @@ function ProductionPage() {
           </div>
 
 
-          {/* ISOMETRIC FACTORY VISUAL */}
+          {/* RIGHT COLUMN — summary cards, gauges and the feasibility
+              form, so the column fills beside the line list rather
+              than leaving a hole under three short cards. */}
 
-          <div className="relative min-h-[420px]">
+          <div className="flex flex-col gap-4">
 
-            {/* Floating capacity card */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
-            <div className="absolute left-5 top-5 max-w-[240px] p-4 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)]">
+            <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
               <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
                 Factory capacity
               </p>
-              <h3 className="mt-1 text-[22px] font-semibold tracking-tight tabular-nums text-slate-900">
+              <h3 className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
                 {kpis.average_utilization}%
               </h3>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-[11px] text-slate-400">
                 {formatNumber(kpis.spare_capacity_per_day)} of{' '}
                 {formatNumber(kpis.total_capacity_per_day)} units/day free
               </p>
             </div>
 
-            {/* Floating bottleneck callout */}
+            <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                Orders on track
+              </p>
+              <h3 className="mt-1.5 text-[18px] font-semibold tracking-tight tabular-nums text-slate-900">
+                {kpis.on_track_percentage}%
+              </h3>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Across {kpis.total_production_orders} production orders
+              </p>
+            </div>
 
-            {bottleneckLine && (
-              <div className="absolute right-5 top-5 max-w-[220px] p-4 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)] !border-amber-200">
+            {bottleneckLine ? (
+              <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)] !border-amber-200 bg-amber-50/40">
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-amber-500" />
                   <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-amber-700">
@@ -425,31 +464,23 @@ function ProductionPage() {
                   {bottleneckLine.current_utilization}% utilized · {bottleneckLine.line_id}
                 </p>
               </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                  Bottlenecks
+                </p>
+                <h3 className="mt-1.5 text-[20px] font-semibold tracking-tight text-slate-900">
+                  None
+                </h3>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Every line is below the {BOTTLENECK_LABEL} threshold
+                </p>
+              </div>
             )}
-
-            {/* Floating orders-on-track card */}
-
-            <div className="absolute bottom-5 left-5 px-4 py-3 rounded-xl border border-white/70 bg-white/85 backdrop-blur-md shadow-[0_10px_30px_-12px_rgba(15,23,42,0.45)]">
-              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
-                Orders on track
-              </p>
-              <p className="mt-1 text-[18px] font-semibold tabular-nums text-slate-900">
-                {kpis.on_track_percentage}%
-              </p>
-            </div>
 
           </div>
 
-        </div>
-      )}
-
-
-      {/* ================================================ */}
-      {/* STAT GAUGES */}
-      {/* ================================================ */}
-
-      {kpis && (
-        <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <CircularStat
             label="Average utilization"
             value={kpis.average_utilization}
@@ -468,15 +499,9 @@ function ProductionPage() {
             sublabel={`${kpis.bottleneck_count} / ${kpis.total_lines} lines`}
             accent="#f59e0b"
           />
-        </div>
-      )}
+          </div>
 
-
-      {/* ================================================ */}
-      {/* FEASIBILITY CHECKER */}
-      {/* ================================================ */}
-
-      <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+          <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
         <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
           Order feasibility
@@ -564,6 +589,11 @@ function ProductionPage() {
         )}
 
       </div>
+
+          </div>
+
+        </div>
+      )}
 
 
       {/* ================================================ */}
@@ -789,7 +819,7 @@ function ProductionPage() {
 
       <div className="grid grid-cols-1 gap-4">
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
           <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
             Workload
@@ -799,11 +829,11 @@ function ProductionPage() {
             Production orders
           </h2>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {orders.map((order) => (
               <div
                 key={order.production_order_id}
-                className="rounded-lg border border-slate-200/80 px-3 py-2.5"
+                className="rounded-lg border border-slate-200/80 px-3 py-2"
               >
 
                 <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -843,7 +873,7 @@ function ProductionPage() {
       </div>
 
     </div>
-    </SceneStage>
+    </ScenePage>
   )
 }
 

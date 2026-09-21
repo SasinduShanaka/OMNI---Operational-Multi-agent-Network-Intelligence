@@ -91,7 +91,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
   return (
     <div>
       {/* Controls */}
-      <div className="mb-3 flex items-center justify-between rounded-xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
+      <div className="mb-4 flex items-center justify-between rounded-xl border border-slate-200/80 bg-white px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
         <div>
           <h2 className="text-[13px] font-semibold text-slate-900">Supplier Directory</h2>
           <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mt-0.5">{suppliers.length} ERP-registered vendors</p>
