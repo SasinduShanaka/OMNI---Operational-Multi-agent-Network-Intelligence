@@ -3,6 +3,8 @@ import { supplyChainApi } from '../api/supplyChainApi'
 import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
 import ManagementReport from './ManagementReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
+import { ScenePage } from './FactoryScene'
+import OmniMark, { OmniAvatar } from './OmniMark'
 import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
 import SystemReadiness from './SystemReadiness'
 import { apiFetch } from '../api/http'
@@ -188,76 +190,150 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     }
   }
 
+  // Keep the newest message in view without yanking the page when the
+  // user has scrolled back to read something.
+  const scrollRef = useRef(null)
+  const endRef = useRef(null)
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 220
+    if (nearBottom || isAsking) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [messages.length, isAsking])
+
   function handleKeyDown(event) {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       handleSend()
     }
   }
 
-  const suggestedQuestions = [
-    'Which materials are below their reorder levels?',
-    'Find suppliers for low stock materials',
-    'What materials are needed for 1,250 Classic Black Polo units?',
-    'Can we fulfill 10,000 Classic Black Polo units in 30 days? Explain the reasons and next steps.',
+  const promptGroups = [
+    {
+      label: 'Stock',
+      icon: '◇',
+      prompts: [
+        'Show me the full fabric stock list',
+        'Which materials are below safety stock?',
+      ],
+    },
+    {
+      label: 'Demand',
+      icon: '⌁',
+      prompts: [
+        'Forecast demand for GAR-003 next month',
+        'What is the demand outlook for GAR-001?',
+      ],
+    },
+    {
+      label: 'Production',
+      icon: '⚙',
+      prompts: [
+        'Can we make 6000 grey hoodies by 20 December 2026?',
+        'Which lines are at capacity?',
+      ],
+    },
+    {
+      label: 'Sourcing',
+      icon: '▱',
+      prompts: [
+        'I need 400 meters of organic cotton',
+        'Which suppliers have the fastest lead times?',
+      ],
+    },
   ]
 
   return (
-    <section className="h-full w-full min-w-0 flex flex-col p-3 sm:px-6 sm:py-4">
+    <ScenePage
+      scene="overview"
+      bannerMaxHeight="13rem"
+      banner={
+        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-6">
 
-      {/* Header */}
-      <div className="mb-3 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 px-1">
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-            Ask Omni
-          </h2>
-          <p className="text-sm text-[#64748b]">
-            Factory operations assistant for stock, sourcing, and production planning
-          </p>
+          <div className="flex items-center gap-3 rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+
+            <OmniAvatar size={44} />
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">Ask Omni</h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  Online
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12px] text-[#64748b]">
+                One question reaches every agent — stock, demand, production and sourcing.
+              </p>
+            </div>
+
+          </div>
+
+          {messages.length > 0 && (
+            <button
+              onClick={() => updateChatState({ messages: [], error: '', draft: '' })}
+              className="rounded-lg border border-white/70 bg-white/85 px-3.5 py-2 text-[12px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
+            >
+              New conversation
+            </button>
+          )}
+
         </div>
-        <div className="inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0]">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-          Factory assistant
-        </div>
-      </div>
+      }
+    >
 
+    <section className="mx-auto flex h-[calc(100vh-4rem-12rem)] min-h-[440px] w-full max-w-[1280px] flex-col px-5 pb-5">
 
-      {/* Chat container */}
-      <div className="flex-1 min-h-0 bg-white border border-slate-200 rounded-2xl shadow-[0_12px_30px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
+      {/* ==================================================== */}
+      {/* CHAT SURFACE                                         */}
+      {/* ==================================================== */}
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
         {/* Conversation */}
-        <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-6 overflow-y-auto">
-
-          <SystemReadiness />
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
 
           {messages.length === 0 && (
-            <div className="flex min-h-[260px] items-center justify-center sm:min-h-[300px]">
+            <div className="mx-auto flex h-full max-w-[900px] flex-col justify-center py-6">
 
-              <div className="text-center max-w-md">
-
-                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center shadow-sm">
-                  <span className="text-xl text-[#0369a1]">
-                    ✦
-                  </span>
-                </div>
-
-                <h3 className="text-lg font-semibold text-slate-800">
-                  How can I help today?
-                </h3>
-
-                <p className="text-sm text-slate-500 mt-2 leading-6">
-                  Ask about demand forecasts, raw material availability,
-                  production shortages, line constraints,
-                  or replenishment timing.
+              <div className="text-center">
+                <OmniAvatar size={48} className="mx-auto mb-3" />
+                <h3 className="text-[15px] font-semibold text-slate-900">How can I help today?</h3>
+                <p className="mx-auto mt-1.5 max-w-sm text-[12px] leading-6 text-slate-500">
+                  Ask in plain language. I route the question to the right agent and show you
+                  the evidence behind the answer.
                 </p>
+              </div>
 
+              <div className="mt-6 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                {promptGroups.map((group) => (
+                  <div key={group.label} className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-3">
+                    <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                      <span className="text-[11px] text-[#1d4ed8]">{group.icon}</span>
+                      {group.label}
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {group.prompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          onClick={() => handleSend(prompt)}
+                          className="block w-full rounded-md bg-white px-2.5 py-1.5 text-left text-[12px] text-slate-600 ring-1 ring-slate-200/80 transition hover:text-[#1d4ed8] hover:ring-[#93c5fd]"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
 
             </div>
           )}
 
-
-          <div className="space-y-6">
+          <div className="space-y-5">
 
             {messages.map((item, index) => (
 
@@ -268,11 +344,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse 
-                    data={item.data} 
-                    setActivePage={setActivePage} 
+                  <AgentResponse
+                    data={item.data}
+                    setActivePage={setActivePage}
                     setScQuery={setScQuery}
                     handleSend={handleSend}
+                    isLatest={index === messages.length - 1 && !isAsking}
                     isAsking={isAsking}
                   />
                 )}
@@ -281,55 +358,16 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
             ))}
 
+            {isAsking && <ThinkingBubble />}
 
-            {isAsking && (
-              <div>
-
-                <p className="text-xs font-medium text-slate-500 mb-2">
-                  Ask Omni
-                </p>
-
-                <div role="status" className="inline-flex max-w-full flex-col gap-3 rounded-lg border border-[#cbd5e1] bg-[#f1f5f9] px-4 py-3 text-sm text-[#475569] shadow-sm">
-
-                  <span className="flex items-center gap-3">
-                    <span className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
-                      <span className="absolute h-5 w-5 animate-spin rounded-full border-2 border-[#bfdbfe] border-t-[#2563eb]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
-                    </span>
-
-                    <span className="flex flex-col leading-tight">
-                      <span className="font-semibold text-slate-700">
-                        {progress?.agent || 'Ask Omni'}
-                      </span>
-                      <span className="mt-0.5 text-xs text-slate-500">
-                        {progress?.detail || 'Waiting for the agent response'}...
-                      </span>
-                    </span>
-                  </span>
-
-                  {progress?.steps?.length > 1 && (
-                    <span className="flex flex-wrap items-center gap-1.5 pl-8">
-                      {progress.steps.map((agent, index) => (
-                        <span
-                          key={`${agent}-${index}`}
-                          className="h-1.5 w-6 rounded-full bg-[#2563eb]"
-                          title={agent}
-                        />
-                      ))}
-                    </span>
-                  )}
-
-                </div>
-
-              </div>
-            )}
+            <div ref={endRef} />
 
           </div>
 
-
           {error && (
-            <div className="mt-5 p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
-              {error}
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">
+              <span className="mt-[2px] text-[13px]">⚠</span>
+              <span>{error}</span>
             </div>
           )}
 
@@ -338,56 +376,41 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         </div>
 
 
-        {/* Suggested questions */}
-        {messages.length === 0 && (
-          <div className="px-6 pb-5 flex-shrink-0 border-t border-slate-100 pt-4">
+        {/* Composer */}
+        <div className="flex-shrink-0 border-t border-slate-100 bg-white p-3">
 
-            <p className="text-xs text-slate-400 mb-2">
-              Try asking
-            </p>
+          <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 transition focus-within:border-[#2563eb] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#3b82f6]/15">
 
-            <div className="flex flex-wrap gap-2">
-
-              {suggestedQuestions.map((question) => (
-                <button
-                  key={question}
-                  onClick={() => updateChatState({ draft: question })}
-                  className="px-3 py-2 rounded-lg border border-[#cbd5e1] bg-[#ffffff] text-xs text-[#475569] hover:border-[#3b82f6] hover:bg-[#dbeafe] transition"
-                >
-                  {question}
-                </button>
-              ))}
-
-            </div>
-
-          </div>
-        )}
-
-
-        {/* Input */}
-        <div className="border-t border-slate-100 p-4 flex-shrink-0">
-
-          <div className="flex gap-3">
-
-            <input
-              type="text"
+            <textarea
+              rows={1}
               value={draft}
               onChange={(event) => updateChatState({ draft: event.target.value })}
               onKeyDown={handleKeyDown}
               disabled={isAsking}
-              placeholder="Ask about demand, fabric, shortages, or production planning..."
-              aria-label="Message Ask Omni"
-              className="min-w-0 flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#3b82f6]/20 transition"
+              placeholder="Ask about demand, fabric, shortages, sourcing or production planning…"
+              className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-6 text-slate-800 placeholder-slate-400 outline-none disabled:opacity-60"
             />
 
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={isAsking || !draft.trim()}
-              className="px-5 py-3 rounded-xl bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Send message"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#1d4ed8] text-white transition hover:bg-[#1e40af] disabled:opacity-40"
             >
-              {isAsking ? '...' : 'Send'}
+              {isAsking
+                ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                : <span className="text-[13px] leading-none">↑</span>}
             </button>
 
+          </div>
+
+          <div className="mt-1.5 flex items-center justify-between px-1">
+            <p className="text-[10px] text-slate-400">
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Enter</kbd> to send ·
+              <kbd className="ml-1 rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Shift</kbd> +
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Enter</kbd> for a new line
+            </p>
+            <p className="text-[10px] text-slate-400">{messages.filter((item) => item.type === 'user').length} asked</p>
           </div>
 
         </div>
@@ -395,7 +418,41 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       </div>
 
     </section>
+
+    </ScenePage>
   )
+}
+
+
+/* ============================================================
+   THINKING INDICATOR
+============================================================ */
+
+function ThinkingBubble() {
+  return (
+    <div className="flex gap-2.5">
+
+      <AgentAvatar />
+
+      <div>
+        <p className="mb-1 text-[11px] font-medium text-slate-500">Ask Omni</p>
+        <div className="inline-flex items-center gap-2 rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+          <span className="flex gap-1">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.3s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.15s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6]" />
+          </span>
+          <span className="text-[12px] text-slate-500">Checking factory data and supplier status…</span>
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+
+function AgentAvatar() {
+  return <OmniAvatar size={28} className="mt-5 !rounded-lg" />
 }
 
 
@@ -405,18 +462,17 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
 function UserMessage({ text }) {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end gap-2.5">
 
-      <div className="max-w-[78%]">
-
-        <p className="text-xs text-slate-400 text-right mb-1">
-          You
-        </p>
-
-        <div className="bg-[#1d4ed8] text-white rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6 shadow-sm">
+      <div className="max-w-[min(76%,620px)]">
+        <p className="mb-1 text-right text-[11px] text-slate-400">You</p>
+        <div className="rounded-xl rounded-tr-sm bg-[#1d4ed8] px-3.5 py-2.5 text-[13px] leading-6 text-white shadow-[0_8px_20px_-12px_rgba(29,78,216,0.9)]">
           {text}
         </div>
+      </div>
 
+      <div className="mt-5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-200 text-[11px] font-semibold text-slate-600">
+        You
       </div>
 
     </div>
@@ -425,10 +481,122 @@ function UserMessage({ text }) {
 
 
 /* ============================================================
+   ANSWER TEXT — turns one long paragraph into something
+   scannable: bullets become a list, "Label: value" pairs become
+   rows, and everything else stays a short paragraph.
+============================================================ */
+
+function AnswerText({ text }) {
+
+  if (!text) return null
+
+  const blocks = String(text)
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+
+  return (
+    <div className="space-y-2.5">
+      {blocks.map((block, index) => {
+
+        const lines = block.split('\n').map((line) => line.trim()).filter(Boolean)
+        const bulletLines = lines.filter((line) => /^([-•*]|\d+[.)])\s+/.test(line))
+
+        // a block is a list when most of its lines are bulleted
+        if (bulletLines.length >= 2 && bulletLines.length >= lines.length - 1) {
+          return (
+            <ul key={index} className="space-y-1.5">
+              {lines.map((line, lineIndex) => {
+                const clean = line.replace(/^([-•*]|\d+[.)])\s+/, '')
+                return (
+                  <li key={lineIndex} className="flex gap-2 text-[13px] leading-6 text-slate-700">
+                    <span className="mt-[9px] h-1 w-1 flex-shrink-0 rounded-full bg-[#3b82f6]" />
+                    <span><InlineEmphasis text={clean} /></span>
+                  </li>
+                )
+              })}
+            </ul>
+          )
+        }
+
+        return (
+          <p key={index} className="text-[13px] leading-6 text-slate-700">
+            <InlineEmphasis text={block.replace(/\n/g, ' ')} />
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+
+// Numbers and quantities carry the weight in an operations answer,
+// so they are the one thing set apart from the running text.
+function InlineEmphasis({ text }) {
+
+  const parts = String(text).split(/(\*\*[^*]+\*\*|\b\d[\d,.]*\s?(?:units|m|kg|pieces|meters|days|%)\b|\b[A-Z]{2,4}-\d{3,4}\b)/g)
+
+  return (
+    <>
+      {parts.map((part, index) => {
+
+        if (/^\*\*[^*]+\*\*$/.test(part)) {
+          return <strong key={index} className="font-semibold text-slate-900">{part.slice(2, -2)}</strong>
+        }
+
+        if (/^\b[A-Z]{2,4}-\d{3,4}\b$/.test(part)) {
+          return (
+            <code key={index} className="rounded border border-slate-200 bg-slate-50 px-1 py-px font-mono text-[11px] text-slate-700">
+              {part}
+            </code>
+          )
+        }
+
+        if (/\d/.test(part) && /(units|m|kg|pieces|meters|days|%)\s*$/.test(part)) {
+          return <span key={index} className="font-semibold tabular-nums text-slate-900">{part}</span>
+        }
+
+        return <React.Fragment key={index}>{part}</React.Fragment>
+      })}
+    </>
+  )
+}
+
+
+/* ============================================================
+   COPY BUTTON
+============================================================ */
+
+function CopyButton({ value }) {
+
+  const [copied, setCopied] = useState(false)
+
+  if (!value) return null
+
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1600)
+        } catch {
+          setCopied(false)
+        }
+      }}
+      className="rounded-md px-1.5 py-0.5 text-[10px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+
+/* ============================================================
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }) {
+function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest, isAsking }) {
   if (!data) {
     return null
   }
@@ -439,12 +607,24 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
     && isForecastUnavailable(data.result)
     && data.answer?.trim() === data.result.message?.trim()
 
-  return (
-    <div className="min-w-0 max-w-full sm:max-w-[92%]">
+  const followUps = followUpsFor(data)
 
-      <p className="text-xs font-medium text-slate-500 mb-2">
-        Ask Omni
-      </p>
+  return (
+    <div className="flex gap-2.5">
+
+      <AgentAvatar />
+
+      <div className="min-w-0 flex-1">
+
+      <div className="mb-1 flex items-center gap-2">
+        <p className="text-[11px] font-medium text-slate-500">Ask Omni</p>
+        {data.intent && (
+          <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.1em] text-slate-500">
+            {String(data.intent).replace(/_/g, ' ')}
+          </span>
+        )}
+        {data.answer && <CopyButton value={data.answer} />}
+      </div>
 
 
       {/* ======================================================
@@ -461,16 +641,13 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
 
               <React.Fragment key={`${agent}-${index}`}>
 
-                <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-600">
-
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700">✓</span>
                   {index === 0 ? 'Operations Agent' : agent}
-
                 </span>
 
                 {index < workflow.length - 1 && (
-                  <span className="text-slate-300">
-                    →
-                  </span>
+                  <span className="text-[10px] text-slate-300">→</span>
                 )}
 
               </React.Fragment>
@@ -490,9 +667,9 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
 
       {data.answer && !answerShownInForecastCard && !data.sections && (
 
-        <div className="whitespace-pre-line break-words bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
+        <div className="rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-4 py-3">
 
-          {data.answer}
+          <AnswerText text={data.answer} />
 
         </div>
 
@@ -815,8 +992,61 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend, isAsking }
 
       </div>
 
+      {isLatest && followUps.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Next</span>
+          {followUps.map((prompt) => (
+            <button
+              key={prompt}
+              onClick={() => handleSend(prompt)}
+              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-[#93c5fd] hover:text-[#1d4ed8]"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      )}
+
+      </div>
+
     </div>
   )
+}
+
+
+/* ============================================================
+   FOLLOW-UPS — what a planner usually asks next, chosen from
+   the intent that just came back rather than a fixed list.
+============================================================ */
+
+function followUpsFor(data) {
+
+  const sku = data?.result?.sku || data?.result?.[0]?.sku
+
+  switch (data?.intent) {
+
+    case 'demand_forecast':
+      return [
+        sku ? `Can we produce the forecast quantity of ${sku}?` : 'Can we produce that quantity?',
+        'Do we have the materials in stock?',
+        'Download this as a report',
+      ]
+
+    case 'inventory_check':
+    case 'low_stock':
+    case 'inventory_list':
+      return ['Which of these need reordering?', 'Find suppliers for the short items', 'Download inventory report']
+
+    case 'production_feasibility':
+    case 'operational_plan':
+      return ['What is blocking it?', 'Suggest a reallocation', 'Show the supplier options']
+
+    case 'procurement':
+      return ['Compare supplier lead times', 'Show me the purchase orders']
+
+    default:
+      return ['Show me the fabric stock list', 'Which lines are at capacity?']
+  }
 }
 
 

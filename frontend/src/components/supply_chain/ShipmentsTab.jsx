@@ -61,7 +61,7 @@ function TrackingPanel({ shipment, onClose }) {
 
         <div className="p-6 flex-1">
           {/* Static DB data */}
-          <div className="space-y-3 mb-6">
+          <div className="space-y-4 mb-6">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Carrier</span>
               <span className="font-semibold text-gray-800">{shipment.carrier_name}</span>
@@ -86,7 +86,7 @@ function TrackingPanel({ shipment, onClose }) {
 
           {/* AI Agent Summary */}
           <div className="border-t border-gray-100 pt-5">
-            <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+            <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex items-center justify-center text-white text-xs font-bold">O</span>
               Omni Tracking Summary
             </h4>
@@ -101,7 +101,7 @@ function TrackingPanel({ shipment, onClose }) {
             )}
             {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded-lg border border-red-200">Could not reach tracking agent: {error}</div>}
             {trackData && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {trackData.weather_alert && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
                     <div className="flex items-center gap-2 font-bold mb-1">
