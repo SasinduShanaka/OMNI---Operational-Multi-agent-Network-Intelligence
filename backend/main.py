@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -41,6 +42,7 @@ load_dotenv(ENV_PATH)
 # Supply chain pipeline router (Dinuja's component)
 from backend.supply_chain.router import supply_chain_router
 from backend.report_router import router as report_router
+from backend.auth import authenticate_token, router as auth_router
 
 
 @asynccontextmanager
@@ -70,9 +72,30 @@ app = FastAPI(
 # CORS
 # ============================================================
 
+PUBLIC_PATHS = {"/", "/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc", "/auth/login", "/auth/register"}
+
+
+@app.middleware("http")
+async def require_authentication(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    user = authenticate_token(token) if scheme.lower() == "bearer" and token else None
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Your session is missing or has expired. Please sign in again."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    request.state.user = user
+    return await call_next(request)
+
+
+# Keep CORS outside authentication so browsers can read 401 responses.
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -81,17 +104,15 @@ app.add_middleware(
         "http://localhost:5175",
         "http://127.0.0.1:5175",
     ],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
 
 # Mount supply chain router under /supply-chain prefix
 app.include_router(supply_chain_router, prefix="/supply-chain", tags=["Supply Chain"])
 app.include_router(report_router)
+app.include_router(auth_router)
 
 
 # ============================================================

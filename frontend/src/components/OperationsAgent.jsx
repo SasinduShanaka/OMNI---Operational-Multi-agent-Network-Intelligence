@@ -7,6 +7,7 @@ import { ScenePage } from './FactoryScene'
 import OmniMark, { OmniAvatar } from './OmniMark'
 import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
 import SystemReadiness from './SystemReadiness'
+import { apiFetch } from '../api/http'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -48,7 +49,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     let timer
     async function poll() {
       try {
-        const response = await fetch(`${API_BASE_URL}/ask/progress/${requestId}`, { signal: controller.signal })
+        const response = await apiFetch(`${API_BASE_URL}/ask/progress/${requestId}`, { signal: controller.signal })
         if (response.ok) {
           const update = await response.json()
           if (!controller.signal.aborted && update.agent) setProgress(update)
@@ -131,7 +132,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         })
         return
       }
-      const response = await fetch(`${API_BASE_URL}${managementReport ? '/reports/generate' : '/ask'}`, {
+      const response = await apiFetch(`${API_BASE_URL}${managementReport ? '/reports/generate' : '/ask'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

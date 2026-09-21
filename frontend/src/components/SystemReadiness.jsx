@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { apiFetch } from '../api/http'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -11,7 +12,7 @@ export default function SystemReadiness() {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch(`${API_BASE_URL}/readiness`, { signal: AbortSignal.timeout(12000) })
+      const response = await apiFetch(`${API_BASE_URL}/readiness`, { signal: AbortSignal.timeout(12000) })
       if (!response.ok) throw new Error('Service status is unavailable. Check that the backend is running.')
       setResult(await response.json())
     } catch (err) {
