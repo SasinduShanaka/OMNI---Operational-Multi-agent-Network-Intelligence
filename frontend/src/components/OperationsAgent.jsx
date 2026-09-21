@@ -358,7 +358,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
             ))}
 
-            {isAsking && <ThinkingBubble />}
+            {isAsking && <ThinkingBubble progress={progress} />}
 
             <div ref={endRef} />
 
@@ -428,7 +428,10 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
    THINKING INDICATOR
 ============================================================ */
 
-function ThinkingBubble() {
+function ThinkingBubble({ progress }) {
+  const agent = progress?.agent || 'Operations Agent'
+  const detail = progress?.detail || 'Checking factory data and supplier status'
+
   return (
     <div className="flex gap-2.5">
 
@@ -436,13 +439,21 @@ function ThinkingBubble() {
 
       <div>
         <p className="mb-1 text-[11px] font-medium text-slate-500">Ask Omni</p>
-        <div className="inline-flex items-center gap-2 rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+        <div
+          role="status"
+          aria-live="polite"
+          className="inline-flex items-center gap-2 rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-3.5 py-2.5"
+        >
           <span className="flex gap-1">
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.3s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.15s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6]" />
           </span>
-          <span className="text-[12px] text-slate-500">Checking factory data and supplier status…</span>
+          <span className="text-[12px] text-slate-500">
+            <span className="font-semibold text-slate-700">{agent}</span>
+            <span aria-hidden="true"> · </span>
+            {detail}...
+          </span>
         </div>
       </div>
 
