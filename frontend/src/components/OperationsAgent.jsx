@@ -249,23 +249,24 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
   return (
     <ScenePage
       scene="overview"
-      bannerMaxHeight="13rem"
+      bannerMaxHeight="7.5rem"
+      contentPull="-mt-3"
       banner={
-        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-6">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-3">
 
-          <div className="flex items-center gap-3 rounded-xl border border-white/60 bg-white/80 px-4 py-3 backdrop-blur-xl">
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/60 bg-white/85 px-3 py-2 backdrop-blur-xl">
 
-            <OmniAvatar size={44} />
+            <OmniAvatar size={32} />
 
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">Ask Omni</h1>
+                <h1 className="text-[17px] font-semibold tracking-tight text-slate-900">Ask Omni</h1>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                   Online
                 </span>
               </div>
-              <p className="mt-0.5 text-[12px] text-[#64748b]">
+              <p className="mt-0.5 text-[11px] text-[#64748b]">
                 One question reaches every agent — stock, demand, production and sourcing.
               </p>
             </div>
@@ -275,7 +276,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
           {messages.length > 0 && (
             <button
               onClick={() => updateChatState({ messages: [], error: '', draft: '' })}
-              className="rounded-lg border border-white/70 bg-white/85 px-3.5 py-2 text-[12px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
+              className="rounded-lg border border-white/70 bg-white/90 px-3 py-2 text-[11px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
             >
               New conversation
             </button>
@@ -285,7 +286,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       }
     >
 
-    <section className="mx-auto flex h-[calc(100vh-4rem-12rem)] min-h-[440px] w-full max-w-[1280px] flex-col px-5 pb-5">
+    <section className="mx-auto flex h-[calc(100dvh-4rem-6.5rem)] min-h-[440px] w-full max-w-[1280px] flex-col px-5 pb-4">
 
       {/* ==================================================== */}
       {/* CHAT SURFACE                                         */}
