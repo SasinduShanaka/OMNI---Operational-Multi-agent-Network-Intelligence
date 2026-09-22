@@ -157,13 +157,17 @@ def approve_po(po_id: int, approved_by: str = "Human Manager") -> dict:
         if not po:
             return {"error": f"Purchase Order with id={po_id} not found."}
 
-        if po["status"] == "approved":
-            return {"po_id": po_id, "status": "approved", "message": "PO was already approved."}
+        if po["status"] not in ("draft", "pending_approval"):
+            return {"error": f"PO #{po_id} cannot be approved from status {po['status']}."}
 
-        conn.execute(
-            "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ?",
-            (approved_by, po_id)
+        cursor = conn.execute(
+            """UPDATE purchase_orders SET status = 'approved', approved_by = ?
+               WHERE po_id = ? AND status IN ('draft', 'pending_approval')""",
+            (approved_by, po_id),
         )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {"error": f"PO #{po_id} is no longer awaiting approval."}
         conn.commit()
 
         return {

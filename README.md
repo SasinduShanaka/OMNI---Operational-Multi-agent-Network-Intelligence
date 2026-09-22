@@ -103,6 +103,11 @@ Open the frontend and select **Create account**. Accounts are stored in the Mong
 
 ### MCP architecture
 
+The active top-level [Operations supervisor](docs/operations_supervisor.md)
+uses a bounded LangGraph plan/act/observe/replan loop. It delegates specialist
+evidence gathering through MCP and keeps procurement approvals in the existing
+authenticated workflow.
+
 OMNI uses LangGraph to route work and maintain workflow state. Agents access operational tools through three MCP servers:
 
 - **Factory Operations MCP:** inventory, demand forecasting, production planning, and management reports backed by MongoDB.

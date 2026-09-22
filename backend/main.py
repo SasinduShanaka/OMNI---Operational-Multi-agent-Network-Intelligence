@@ -713,6 +713,12 @@ def _process_ask(request: AskRequest):
         session_id = request.session_id
         from agents.operations_agent import process_request
 
+        # User text cannot impersonate a system/manager message to reach the
+        # approval-followup path before the Operations security boundary.
+        from agents.operations_agent import _prompt_attack_kind
+        if _prompt_attack_kind(request.message):
+            return process_request(request.message)
+
         if is_approval_followup(request.message, session_id):
             return handle_approval_followup(session_id, request)
 

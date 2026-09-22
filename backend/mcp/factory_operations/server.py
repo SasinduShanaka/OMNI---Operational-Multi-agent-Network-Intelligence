@@ -219,6 +219,20 @@ def production_check_feasibility(
 
 
 @mcp.tool()
+def production_check_capacity_after_arrival(
+    sku: str | None = None,
+    product_name: str | None = None,
+    quantity: float = 0,
+    required_date: str | None = None,
+    lead_time_days: int = 0,
+) -> dict:
+    """Assess remaining line capacity conditional on a material lead time."""
+    return production_agent.check_capacity_after_material_arrival(
+        sku, product_name, quantity, required_date, lead_time_days
+    )
+
+
+@mcp.tool()
 def production_get_kpis() -> dict:
     """Return production key performance indicators."""
     return production_agent.get_production_kpis()

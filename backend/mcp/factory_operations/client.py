@@ -208,6 +208,15 @@ def check_production_feasibility(
     })
 
 
+def check_capacity_after_material_arrival(
+    sku=None, product_name=None, quantity=0, required_date=None, lead_time_days=0
+):
+    return call_factory_tool("production_check_capacity_after_arrival", {
+        "sku": sku, "product_name": product_name, "quantity": quantity,
+        "required_date": required_date, "lead_time_days": lead_time_days,
+    })
+
+
 def get_production_kpis():
     return call_factory_tool("production_get_kpis")
 

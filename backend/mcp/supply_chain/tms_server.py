@@ -11,7 +11,7 @@ DB_DIR = os.path.abspath(
 )
 sys.path.insert(0, DB_DIR)
 
-from db import get_tms_db_connection
+from db import get_tms_db_connection, get_erp_db_connection
 
 from fastmcp import FastMCP
 
@@ -87,6 +87,17 @@ def book_shipment(
     Returns:
         The newly created shipment id, status, and ETA.
     """
+    # The TMS boundary must validate ERP state independently of its caller.
+    erp = get_erp_db_connection()
+    try:
+        po = erp.execute(
+            "SELECT status FROM purchase_orders WHERE po_id = ?", (po_id,)
+        ).fetchone()
+        if po is None or po["status"] != "approved":
+            return {"error": f"PO #{po_id} does not exist or is not approved."}
+    finally:
+        erp.close()
+
     conn = get_tms_db_connection()
     try:
         # Validate carrier exists

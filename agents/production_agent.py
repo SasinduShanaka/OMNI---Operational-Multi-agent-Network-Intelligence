@@ -661,6 +661,37 @@ def check_capacity(sku=None, product_name=None, quantity=0, required_date=None):
     }
 
 
+def check_capacity_after_material_arrival(
+    sku=None, product_name=None, quantity=0, required_date=None, lead_time_days=0
+):
+    """Recheck deterministic line capacity after materials can arrive.
+
+    This is conditional planning evidence, not a promise that a supplier or
+    production line has been reserved.
+    """
+    lead_time_days = int(lead_time_days)
+    if lead_time_days < 0:
+        raise ValueError("Lead time cannot be negative.")
+    result = check_capacity(sku, product_name, quantity, required_date)
+    if result.get("status") not in {"FEASIBLE", "AT_RISK", "INFEASIBLE"}:
+        return result
+    remaining = max(result.get("days_available", 0) - lead_time_days, 0)
+    working_days = remaining * result.get("working_days", 0) / max(result.get("days_available", 1), 1)
+    spare = result.get("spare_capacity_per_day", 0) * working_days
+    full = result.get("capacity_per_day", 0) * working_days
+    result = {**result,
+        "conditional_on_material_arrival": True,
+        "lead_time_days": lead_time_days,
+        "remaining_calendar_days": remaining,
+        "working_days_after_arrival": round(working_days, 1),
+        "producible_quantity": round(spare),
+        "producible_at_full_capacity": round(full),
+        "shortfall": round(max(float(quantity) - spare, 0)),
+        "status": "FEASIBLE" if spare >= quantity else "AT_RISK" if full >= quantity else "INFEASIBLE",
+    }
+    return result
+
+
 # ============================================================
 # 9. SUGGEST REALLOCATION
 # ============================================================

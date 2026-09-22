@@ -99,6 +99,19 @@ class OperationsState(TypedDict, total=False):
     inventory: list[dict]
     supply_chain_mode: str
     risks: list[str]
+    goal: dict
+    plan: list[dict]
+    completed_steps: list[dict]
+    evidence: dict
+    next_agent: str | None
+    next_task: str | None
+    next_reason: str | None
+    missing_information: list[str]
+    requires_approval: bool
+    iteration: int
+    max_iterations: int
+    status: str
+    stop_reason: str | None
 
 
 # ============================================================
@@ -2766,7 +2779,9 @@ def build_operations_graph():
     return graph.compile()
 
 
-operations_graph = build_operations_graph()
+from agents.operations_workflow import build_operations_graph as build_supervisor_graph
+
+operations_graph = build_supervisor_graph()
 
 # User text is data, never a replacement for the system/developer rules. Keep
 # this check before LangGraph classification so an injection cannot be turned
