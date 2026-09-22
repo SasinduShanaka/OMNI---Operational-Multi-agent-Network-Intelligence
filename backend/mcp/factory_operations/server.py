@@ -10,7 +10,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from agents import forecast_agent, inventory_agent, production_agent
+from agents.forecast import forecast_agent
+from agents.inventory import inventory_agent
+from agents.production import production_agent
 
 
 mcp = FastMCP("OMNI Factory Operations Server")
@@ -39,7 +41,11 @@ def inventory_add_item(
     material_code: str | None = None,
     classification: str | None = "B",
 ) -> dict:
-    """Create or update a validated inventory material."""
+    """Write-capable: create/update one validated material after HTTP authorization.
+
+    Do not call for stock analysis or a sourcing recommendation. The caller
+    must supply the name, stock and reorder threshold explicitly.
+    """
     return inventory_agent.add_inventory_item(
         material_name=material_name,
         current_stock=current_stock,
@@ -83,7 +89,11 @@ def inventory_check_requirement(
     material_code: str | None = None,
     required_quantity: float = 0,
 ) -> dict:
-    """Compare a material requirement with current stock."""
+    """Read-only: compare required_quantity with live stock by name/code.
+
+    Returns the authoritative available quantity and shortage; callers must
+    not infer either number from LLM text.
+    """
     return inventory_agent.check_inventory_requirement(
         material_name=material_name,
         material_code=material_code,
@@ -219,6 +229,24 @@ def production_check_feasibility(
 
 
 @mcp.tool()
+def production_check_capacity_after_arrival(
+    sku: str | None = None,
+    product_name: str | None = None,
+    quantity: float = 0,
+    required_date: str | None = None,
+    lead_time_days: int = 0,
+) -> dict:
+    """Read-only: recalculate spare/full line capacity after material arrival.
+
+    lead_time_days must come from verified sourcing evidence. The result is a
+    conditional estimate, not a reservation or permission to change orders.
+    """
+    return production_agent.check_capacity_after_material_arrival(
+        sku, product_name, quantity, required_date, lead_time_days
+    )
+
+
+@mcp.tool()
 def production_get_kpis() -> dict:
     """Return production key performance indicators."""
     return production_agent.get_production_kpis()
@@ -236,7 +264,7 @@ def production_get_summary() -> dict:
 def report_generate(scope: dict[str, Any]) -> dict:
     """Build a read-only, evidence-grounded factory management report."""
     # Lazy import avoids loading reporting code for requests that do not use it.
-    from agents.report_agent import build_report
+    from agents.reports.report_agent import build_report
 
     return build_report(scope)
 

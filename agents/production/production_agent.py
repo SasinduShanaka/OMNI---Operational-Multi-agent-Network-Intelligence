@@ -4,7 +4,7 @@ from datetime import datetime, date, timezone
 
 from database.connection import db
 
-from agents.inventory_agent import check_inventory_requirement
+from agents.inventory.inventory_agent import check_inventory_requirement
 from backend.agent_progress import report_progress
 
 
@@ -659,6 +659,76 @@ def check_capacity(sku=None, product_name=None, quantity=0, required_date=None):
         "message": message,
         "factors": factors,
     }
+
+
+def check_capacity_after_material_arrival(
+    sku=None, product_name=None, quantity=0, required_date=None, lead_time_days=0
+):
+    """Recheck deterministic line capacity after materials can arrive.
+
+    This is conditional planning evidence, not a promise that a supplier or
+    production line has been reserved.
+    """
+    lead_time_days = int(lead_time_days)
+    if lead_time_days < 0:
+        raise ValueError("Lead time cannot be negative.")
+    result = check_capacity(sku, product_name, quantity, required_date)
+    if result.get("status") not in {"FEASIBLE", "AT_RISK", "INFEASIBLE"}:
+        return result
+    remaining = max(result.get("days_available", 0) - lead_time_days, 0)
+    working_days = remaining * result.get("working_days", 0) / max(result.get("days_available", 1), 1)
+    spare = result.get("spare_capacity_per_day", 0) * working_days
+    full = result.get("capacity_per_day", 0) * working_days
+    result = {**result,
+        "conditional_on_material_arrival": True,
+        "lead_time_days": lead_time_days,
+        "remaining_calendar_days": remaining,
+        "working_days_after_arrival": round(working_days, 1),
+        "producible_quantity": round(spare),
+        "producible_at_full_capacity": round(full),
+        "shortfall": round(max(float(quantity) - spare, 0)),
+        "status": "FEASIBLE" if spare >= quantity else "AT_RISK" if full >= quantity else "INFEASIBLE",
+    }
+    return result
+
+
+def assess_production_evidence(facts: dict, goal: dict, supply_evidence: dict | None = None):
+    """Interpret MCP-backed production facts and request missing domain evidence.
+
+    This function does not recalculate capacity or mutate production records.
+    """
+    from agents.schemas import AgentRequest, AgentResult
+
+    status = facts.get("status")
+    if status not in {"FEASIBLE", "AT_RISK", "INFEASIBLE"}:
+        return AgentResult(agent="production", status="error",
+                           facts=facts, errors=[facts.get("error") or facts.get("message") or "Production evidence is unavailable."],
+                           confidence_level="low")
+    shortages = [item for item in facts.get("blocking_materials", [])
+                 if item.get("status") == "SHORTAGE" and float(item.get("shortage") or 0) > 0]
+    requests = []
+    if shortages and not supply_evidence and not facts.get("conditional_on_material_arrival"):
+        for material in shortages:
+            code = material.get("material_code") or material.get("material_name") or "material"
+            requests.append(AgentRequest(target_agent="supply_chain",
+                task=f"Find a compliant supplier and lead time for {code}.",
+                reason="Material arrival affects production feasibility.",
+                required_facts=["lead_time_days", "supplier_compliance"]))
+    risks = []
+    if facts.get("shortfall", 0) > 0:
+        risks.append(f"Spare-capacity shortfall: {facts['shortfall']} units.")
+    for material in shortages:
+        risks.append(f"{material.get('material_code') or material.get('material_name')} is short by {material['shortage']} {material.get('unit', 'units')}.")
+    assumptions = []
+    if facts.get("conditional_on_material_arrival"):
+        assumptions.append(f"Materials arrive after the sourced {facts.get('lead_time_days')} day lead time.")
+        assumptions.append("Current line utilization remains unchanged.")
+    if risks and facts.get("sku"):
+        from agents.memory import remember_domain
+        remember_domain("production", {"topic": facts["sku"], "finding": risks[0]})
+    return AgentResult(agent="production", status="needs_collaboration" if requests else "success",
+                       conclusion=status, facts=facts, risks=risks, assumptions=assumptions,
+                       confidence_level="medium" if requests or assumptions else "high", requests=requests)
 
 
 # ============================================================

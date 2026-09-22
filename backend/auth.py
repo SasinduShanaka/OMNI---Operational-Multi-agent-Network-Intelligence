@@ -35,6 +35,14 @@ def current_user_name() -> str:
     return user.get("name", "Human Manager") if user else "Human Manager"
 
 
+def require_manager() -> dict:
+    """Authorize a financial approval from the authenticated HTTP principal."""
+    user = principal.get()
+    if not user or user.get("role") != "manager":
+        raise HTTPException(status_code=403, detail="Manager approval is required.")
+    return user
+
+
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     email: str = Field(min_length=5, max_length=254)

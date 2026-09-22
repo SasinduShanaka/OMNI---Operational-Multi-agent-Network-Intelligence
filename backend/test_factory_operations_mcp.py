@@ -74,7 +74,7 @@ class FactoryOperationsMcpTests(unittest.TestCase):
         )
 
     @patch(
-        "agents.report_agent.build_report",
+        "agents.reports.report_agent.build_report",
         return_value={"status": "success", "scope": {"domains": ["inventory"]}},
     )
     def test_report_generation_crosses_the_mcp_boundary(self, build_report):

@@ -2,7 +2,7 @@ from datetime import datetime
 import unittest
 from unittest.mock import patch
 
-from agents import forecast_agent
+from agents.forecast import forecast_agent
 
 
 class FakeDemandCollection:

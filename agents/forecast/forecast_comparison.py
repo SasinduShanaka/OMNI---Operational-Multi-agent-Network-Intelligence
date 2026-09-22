@@ -4,7 +4,7 @@ import math
 
 
 def compare_product(sku, demand, audits, now=None):
-    from agents.forecast_agent import analyze_demand_records
+    from agents.forecast.forecast_agent import analyze_demand_records
     now = now or datetime.now(timezone.utc)
     end = now.astimezone(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     start = (end - timedelta(days=1)).replace(day=1)
@@ -44,7 +44,7 @@ def compare_product(sku, demand, audits, now=None):
     if len(training) < 3:
         reason = 'invalid or duplicate records' if boundary in bad_months else 'missing demand'
         return {**result, 'training_months': len(training), 'note': f'No eligible saved forecast. Found {len(training)} consecutive valid training months before {period[:7]}; at least 3 are required. The sequence stops at {boundary}: {reason}. Add or correct verified monthly totals.' + warning}
-    from agents.forecast_agent import _fit_holt
+    from agents.forecast.forecast_agent import _fit_holt
     level, trend, _, _ = _fit_holt([row['quantity'] for row in training])
     predicted = max(0, round(level + trend, 2))
     error = predicted - result['actual']
@@ -57,7 +57,7 @@ def compare_product(sku, demand, audits, now=None):
 
 
 def compare_last_month(skus):
-    from agents.forecast_agent import demand_collection, activity_collection
+    from agents.forecast.forecast_agent import demand_collection, activity_collection
     if demand_collection is None or activity_collection is None:
         raise RuntimeError('Demand and forecast audit storage must be configured.')
     return [compare_product(sku, demand_collection, activity_collection) for sku in skus]

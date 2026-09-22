@@ -5,7 +5,7 @@ import re
 import unittest
 from unittest.mock import Mock
 
-from agents.forecast_product import resolve_forecast_product
+from agents.forecast.forecast_product import resolve_forecast_product
 
 PRODUCTS = [
     {"sku": "GAR-001", "product_name": "Classic Black Polo"},
@@ -105,7 +105,7 @@ class ProductSelectionTests(unittest.TestCase):
     def test_specialist_forecasts_only_resolved_sku(self):
         # Load the real dispatch function in isolation: the module otherwise
         # initializes unrelated database/LLM clients at import time.
-        tree = ast.parse(Path(__file__).with_name('operations_agent.py').read_text(encoding='utf-8'))
+        tree = ast.parse((Path(__file__).resolve().parents[2] / 'agents' / 'operations' / 'operations_agent.py').read_text(encoding='utf-8'))
         node = next(item for item in tree.body if isinstance(item, ast.FunctionDef) and item.name == '_execute_specialist_request')
         forecast = Mock(return_value={"status": "error", "message": "Missing history"})
         all_products = Mock()

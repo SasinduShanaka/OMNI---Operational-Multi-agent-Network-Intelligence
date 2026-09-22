@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from agents import inventory_agent
+from agents.inventory import inventory_agent
 
 
 class InventoryAgentTests(unittest.TestCase):

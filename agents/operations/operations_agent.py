@@ -37,13 +37,13 @@ from backend.mcp.factory_operations.client import (
     get_product_materials,
     check_production_feasibility,
 )
-from agents.forecast_product import resolve_forecast_product
+from agents.forecast.forecast_product import resolve_forecast_product
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 
 load_dotenv(ENV_PATH)
@@ -99,6 +99,33 @@ class OperationsState(TypedDict, total=False):
     inventory: list[dict]
     supply_chain_mode: str
     risks: list[str]
+    goal: dict
+    plan: list[dict]
+    completed_steps: list[dict]
+    evidence: dict
+    next_agent: str | None
+    next_task: str | None
+    next_reason: str | None
+    missing_information: list[str]
+    requires_approval: bool
+    iteration: int
+    max_iterations: int
+    status: str
+    stop_reason: str | None
+    known_facts: dict
+    unknowns: list[str]
+    agent_messages: list[dict]
+    open_agent_requests: list[dict]
+    assumptions: list[str]
+    contradictions: list[str]
+    confidence: str | None
+    review: dict
+    review_rounds: int
+    reviewed_steps: int
+    events: list[dict]
+    retry_counts: dict
+    original_request: str
+    session_context: dict
 
 
 # ============================================================
@@ -108,7 +135,14 @@ class OperationsState(TypedDict, total=False):
 def _extract_common_entities(user_request: str) -> dict:
     sku_match = re.search(r"\bGAR-\d{3}\b", user_request, re.IGNORECASE)
     material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", user_request, re.IGNORECASE)
-    quantity_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", user_request)
+    # Product IDs and dates are not order quantities.
+    quantity_text = re.sub(r"\b(?:GAR|FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", " ", user_request, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b20\d{2}-\d{2}-\d{2}\b", " ", quantity_text)
+    quantity_text = re.sub(
+        r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+20\d{2})?\b",
+        " ", quantity_text, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b(?:in|within)\s+\d+\s+(?:days?|weeks?)\b", " ", quantity_text, flags=re.IGNORECASE)
+    quantity_match = re.search(r"\b(\d[\d,]*(?:\.\d+)?)\b", quantity_text)
 
     return {
         "material_name": None,
@@ -227,6 +261,21 @@ def _extract_date(user_request: str) -> str | None:
     iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
     if iso_match:
         return iso_match.group(1)
+
+    month_match = re.search(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b",
+        text,
+    )
+    if month_match:
+        month = datetime.strptime(month_match.group(1), "%B").month
+        year = int(month_match.group(3)) if month_match.group(3) else today.year
+        try:
+            candidate = today.replace(year=year, month=month, day=int(month_match.group(2)))
+        except ValueError:
+            return None
+        if not month_match.group(3) and candidate < today:
+            candidate = candidate.replace(year=year + 1)
+        return candidate.isoformat()
 
     return None
 
@@ -1677,7 +1726,7 @@ def _execute_specialist_request(user_request: str):
             }
 
         if selection.get("mode") == "comparison":
-            from agents.forecast_comparison import compare_last_month
+            from agents.forecast.forecast_comparison import compare_last_month
             try:
                 comparisons = compare_last_month([selection["sku"]] if selection["status"] == "matched" else [p["sku"] for p in products])
             except Exception:
@@ -2766,7 +2815,9 @@ def build_operations_graph():
     return graph.compile()
 
 
-operations_graph = build_operations_graph()
+from agents.operations.operations_workflow import build_operations_graph as build_supervisor_graph
+
+operations_graph = build_supervisor_graph()
 
 # User text is data, never a replacement for the system/developer rules. Keep
 # this check before LangGraph classification so an injection cannot be turned
@@ -2831,12 +2882,16 @@ def _security_response(kind: str) -> dict:
     }
 
 
-def process_request(user_request: str):
+def process_request(user_request: str, context=None):
     """Run the Operations Agent as a LangGraph supervisor over specialist agents."""
     attack_kind = _prompt_attack_kind(user_request)
     if attack_kind:
         return _security_response(attack_kind)
-    final_state = operations_graph.invoke({"user_request": user_request})
+    from agents.operations.conversation_context import resolve_followup
+    resolved_request = resolve_followup(user_request, context)
+    final_state = operations_graph.invoke({"user_request": resolved_request,
+                                           "original_request": user_request,
+                                           "session_context": context.model_dump(mode="json") if context else {}})
     response = final_state["response"]
     response["llm_used"] = client is not None
     response.setdefault("orchestrator", "LangGraph")

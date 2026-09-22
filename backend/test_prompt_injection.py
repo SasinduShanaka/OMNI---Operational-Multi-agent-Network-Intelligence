@@ -2,7 +2,7 @@
 
 import unittest
 
-from agents.operations_agent import process_request
+from agents.operations.operations_agent import process_request
 
 
 class PromptInjectionTests(unittest.TestCase):
