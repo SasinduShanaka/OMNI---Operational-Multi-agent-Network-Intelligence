@@ -11,7 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 MONGO_URI = os.getenv("MONGO_URI")
 DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")

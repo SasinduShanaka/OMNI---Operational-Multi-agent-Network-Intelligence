@@ -58,7 +58,8 @@ async def lifespan(app):
         stop.set()
         await asyncio.to_thread(thread.join, 5)
         from database.connection import client as database_client
-        from agents import inventory_agent, forecast_agent
+        from agents.inventory import inventory_agent
+        from agents.forecast import forecast_agent
         from backend.report_service import get_db
         database_client.close()
         inventory_agent.client.close()
@@ -328,11 +329,18 @@ def is_low_stock_supply_chain_request(message: str) -> bool:
 
 
 def is_contextual_low_stock_order(message: str, session_id: str | None) -> bool:
-    if not session_id or session_id not in operations_contexts:
+    if not session_id:
         return False
-
-    previous = operations_contexts[session_id]
-    if previous.get("intent") != "low_stock_procurement":
+    from agents.operations.conversation_context import get_context
+    user_id = (principal.get() or {}).get("user_id")
+    state = get_context(session_id, user_id)
+    previous = operations_contexts.get(session_id, {})
+    owner = previous.get("owner_id")
+    if state:
+        relevant = state.last_business_intent == "low_stock_procurement"
+    else:
+        relevant = previous.get("intent") == "low_stock_procurement" and (not owner or owner == user_id)
+    if not relevant:
         return False
 
     text = message.lower()
@@ -358,8 +366,14 @@ def remember_operations_context(session_id: str | None, result: dict):
     if not session_id:
         return
 
+    from agents.operations.conversation_context import remember_pending_approvals
+    pending = collect_pending_approvals(result)
+    if pending:
+        remember_pending_approvals(session_id, (principal.get() or {}).get("user_id"), pending)
+
     if result.get("intent") == "low_stock_procurement" and result.get("status") == "success":
         operations_contexts[session_id] = {
+            "owner_id": (principal.get() or {}).get("user_id"),
             "intent": result.get("intent"),
             "results": result.get("results", []),
             "procurement": result.get("procurement", []),
@@ -367,18 +381,24 @@ def remember_operations_context(session_id: str | None, result: dict):
         }
         return
 
-    pending = collect_pending_approvals(result)
     if pending:
         operations_contexts[session_id] = {
+            "owner_id": (principal.get() or {}).get("user_id"),
             "intent": result.get("intent"),
             "pending_approvals": pending,
         }
 
 
 def is_approval_followup(message: str, session_id: str | None) -> bool:
-    if not session_id or session_id not in operations_contexts:
+    if not session_id:
         return False
-    if not operations_contexts[session_id].get("pending_approvals"):
+    from agents.operations.conversation_context import get_context
+    state = get_context(session_id, (principal.get() or {}).get("user_id"))
+    legacy = operations_contexts.get(session_id, {})
+    owner = legacy.get("owner_id")
+    pending = (state.pending_approvals if state else
+               legacy.get("pending_approvals") if not owner or owner == (principal.get() or {}).get("user_id") else [])
+    if not pending:
         return False
 
     text = message.lower()
@@ -424,8 +444,12 @@ def handle_approval_followup(session_id: str, request: AskRequest):
     from backend.supply_chain.orchestrator import approve_pipeline, reject_pipeline
     import asyncio
 
+    from agents.operations.conversation_context import get_context, remember_pending_approvals
     context = operations_contexts.get(session_id, {})
-    pending = context.get("pending_approvals", [])
+    user_id = (principal.get() or {}).get("user_id")
+    state = get_context(session_id, user_id)
+    pending = state.pending_approvals if state else (
+        context.get("pending_approvals", []) if not context.get("owner_id") or context["owner_id"] == user_id else [])
     selected, question = select_pending_approval(request.message, pending)
 
     if question:
@@ -467,6 +491,7 @@ def handle_approval_followup(session_id: str, request: AskRequest):
         item for item in pending
         if item.get("run_id") not in completed_run_ids
     ]
+    remember_pending_approvals(session_id, user_id, context["pending_approvals"])
 
     verb = "rejected" if rejecting else "approved"
     answer = f"I {verb} {len(completed)} purchase order(s)."
@@ -552,9 +577,16 @@ def _start_contextual_procurement(session_id: str, materials: list[dict]) -> dic
         return {"agent": "Operations Agent", "intent": "procurement", "status": "needs_more_info",
                 "answer": f"I found shortages for {names}. Which material should I source first?",
                 "workflow": ["Operations Agent"], "requires_approval": False}
-    from agents.operations_agent import _material_type_for_shortage
+    from agents.operations.operations_agent import _material_type_for_shortage
 
     item = materials[0]
+    category_evidence = f"{item.get('material_code') or ''} {item.get('material_name') or ''}".lower()
+    if not any(token in category_evidence for token in (
+            "fab-", "fabric", "fleece", "cotton", "denim", "cloth", "dye", "btn-", "button",
+            "zipper", "thr-", "thread", "lbl-", "label", "pkg-", "packaging")):
+        return {"agent": "Operations Agent", "intent": "procurement", "status": "needs_more_info",
+                "answer": "I found the shortage, but its supplier category needs verification before sourcing.",
+                "workflow": ["Operations Agent"], "requires_approval": False}
     material_type, requirement_id, _ = _material_type_for_shortage(item["material_code"], item.get("material_name"))
     if material_type not in {"fabric_mill", "trim_vendor", "dye_house"}:
         return {"agent": "Operations Agent", "intent": "procurement", "status": "needs_more_info",
@@ -565,13 +597,15 @@ def _start_contextual_procurement(session_id: str, materials: list[dict]) -> dic
                     "material_code": item["material_code"], "qty": item["shortage"],
                     "unit": item.get("unit") or "units", "compliance_keywords": [],
                     "destination": "Colombo, Sri Lanka"}
-    suppliers = _supplier_options(requirements)
+    suppliers = [supplier for supplier in _supplier_options(requirements)
+                 if supplier.get("estimated_total") is not None]
     if not suppliers:
         return {"agent": "Operations Agent", "intent": "procurement", "status": "partial",
                 "answer": f"I found the {item['shortage']:,.0f} {requirements['unit']} shortage of {requirements['material_name']}, but no supplier is currently listed for this material category.",
                 "workflow": ["Operations Agent", "Supply Chain Agent"], "requires_approval": False}
     procurement_sessions[session_id] = {"phase": "selecting", "history": [],
-                                        "requirements": requirements, "suppliers": suppliers}
+                                        "requirements": requirements, "suppliers": suppliers,
+                                        "owner_id": (principal.get() or {}).get("user_id")}
     return {"agent": "Supply Chain Agent", "task": "Select Supplier", "intent": "procurement",
             "status": "selecting", "answer": f"The order is short of {item['shortage']:,.0f} {requirements['unit']} of {requirements['material_name']} ({item['material_code']}). Please select a supplier to draft a purchase order; manager approval will still be required.",
             "suppliers": suppliers, "workflow": ["Operations Agent", "Supply Chain Agent"],
@@ -584,9 +618,12 @@ def handle_procurement_turn(session_id: str, request: AskRequest):
     import asyncio
     
     if session_id not in procurement_sessions or isinstance(procurement_sessions.get(session_id), list):
-        procurement_sessions[session_id] = {"phase": "gathering", "history": [], "requirements": {}}
+        procurement_sessions[session_id] = {"phase": "gathering", "history": [], "requirements": {},
+                                            "owner_id": (principal.get() or {}).get("user_id")}
         
     session = procurement_sessions[session_id]
+    if session.get("owner_id") and session["owner_id"] != (principal.get() or {}).get("user_id"):
+        raise HTTPException(status_code=403, detail="This procurement session belongs to another user.")
     
     user_message = request.message
     payload = request.payload or {}
@@ -800,13 +837,13 @@ def _process_ask(request: AskRequest):
     try:
         # Check active session
         session_id = request.session_id
-        from agents.operations_agent import process_request
-        from agents.conversation_context import get_context, remember_context, compare_recent, contextual_shortages
+        from agents.operations import process_request
+        from agents.operations.conversation_context import get_context, remember_context, compare_recent, contextual_shortages
         user_id = (principal.get() or {}).get("user_id")
 
         # User text cannot impersonate a system/manager message to reach the
         # approval-followup path before the Operations security boundary.
-        from agents.operations_agent import _prompt_attack_kind
+        from agents.operations.operations_agent import _prompt_attack_kind
         if _prompt_attack_kind(request.message):
             return process_request(request.message)
 
@@ -814,6 +851,7 @@ def _process_ask(request: AskRequest):
         shortages = contextual_shortages(request.message, context)
         if shortages and session_id and session_id not in procurement_sessions:
             result = _start_contextual_procurement(session_id, shortages)
+            remember_context(session_id, user_id, result)
             record_agent_activity("Contextual production-shortage sourcing", result, session_id, "Medium")
             return result
 
@@ -827,6 +865,7 @@ def _process_ask(request: AskRequest):
             result = process_request("order these low stock materials")
             result["workflow"] = compact_workflow(result.get("workflow"))
             remember_operations_context(session_id, result)
+            remember_context(session_id, user_id, result)
             record_agent_activity("Contextual low-stock order", result, session_id, "Medium")
             return result
 
@@ -837,6 +876,7 @@ def _process_ask(request: AskRequest):
             result = handle_procurement_turn(session_id, request)
             result["workflow"] = compact_workflow(result.get("workflow"))
             remember_operations_context(session_id, result)
+            remember_context(session_id, user_id, result)
             record_agent_activity("Procurement session turn", result, session_id, "Medium")
             return result
 
@@ -869,6 +909,7 @@ def _process_ask(request: AskRequest):
             # Immediately take the first turn
             result = handle_procurement_turn(new_session, request)
             result["workflow"] = compact_workflow(result.get("workflow"))
+            remember_context(new_session, user_id, result)
             record_agent_activity("Procurement session started", result, new_session, "Medium")
             return result
 

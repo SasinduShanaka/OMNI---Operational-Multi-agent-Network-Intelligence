@@ -436,7 +436,7 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
 
 async def analyze_shortages(materials: list[dict]) -> dict:
     """Read-only sourcing for Operations; never enter the purchasing pipeline."""
-    from agents.operations_agent import _material_type_for_shortage
+    from agents.operations.operations_agent import _material_type_for_shortage
     from agents.supply_chain.sourcing_agent import run_sourcing_agent
 
     options, errors = [], []

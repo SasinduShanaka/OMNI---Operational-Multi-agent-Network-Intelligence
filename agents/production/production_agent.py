@@ -4,7 +4,7 @@ from datetime import datetime, date, timezone
 
 from database.connection import db
 
-from agents.inventory_agent import check_inventory_requirement
+from agents.inventory.inventory_agent import check_inventory_requirement
 from backend.agent_progress import report_progress
 
 

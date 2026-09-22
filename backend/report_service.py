@@ -10,7 +10,7 @@ from uuid import uuid4
 from bson import ObjectId
 from pymongo import MongoClient, ReturnDocument, timeout
 
-from agents.report_agent import utcnow
+from agents.reports.report_agent import utcnow
 from backend.mcp.factory_operations.client import generate_management_report as build_report
 
 logger = logging.getLogger(__name__)

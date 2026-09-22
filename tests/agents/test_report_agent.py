@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from agents.report_agent import build_report
+from agents.reports.report_agent import build_report
 
 
 class ReportAgentTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class ReportAgentTests(unittest.TestCase):
         self.assertEqual(len(report["evidence"]["forecast"]), 2)
 
     def test_unavailable_source_does_not_abort_other_sections_or_leak_errors(self):
-        with self.assertLogs("agents.report_agent", level="ERROR"):
+        with self.assertLogs("agents.reports.report_agent", level="ERROR"):
             report = build_report({"domains": ["inventory", "forecast"]}, {
                 "inventory": Mock(side_effect=RuntimeError("private database password")),
                 "forecast": lambda _: [],
@@ -32,7 +32,7 @@ class ReportAgentTests(unittest.TestCase):
         self.assertNotIn("private database password", str(report))
 
     def test_all_failed_is_error_and_empty_is_not_healthy(self):
-        with self.assertLogs("agents.report_agent", level="ERROR"):
+        with self.assertLogs("agents.reports.report_agent", level="ERROR"):
             report = build_report({"domains": ["inventory"]}, {"inventory": Mock(side_effect=ValueError("bad data"))})
         self.assertEqual(report["status"], "error")
         empty = build_report({"domains": ["inventory"]}, {"inventory": lambda _: []})

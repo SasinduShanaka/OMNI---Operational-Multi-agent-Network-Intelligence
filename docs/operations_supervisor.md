@@ -1,7 +1,8 @@
 # Operations supervisor
 
-`agents/operations_agent.py` still parses requests and protects the chat
-security boundary. Its active graph is built by `agents/operations_workflow.py`:
+`agents/operations/operations_agent.py` owns the chat entry point, intent
+parsing, entity extraction and prompt-injection checks. Its active graph is
+built by `agents/operations/operations_workflow.py`:
 
 ```text
 START -> understand_goal -> supervisor
@@ -43,8 +44,13 @@ supervisor's allowed evidence actions when several are useful; the fallback is
 deterministic, and model output cannot authorize a write.
 
 The API stores short-term `ConversationContext` per authenticated user and
-session for 15 minutes. It retains the analytical goal, unanswered question,
-recent verdicts and limited sourcing evidence. Supplier lead times may be
+session for 15 minutes. It retains the active order, verified blocking materials,
+unanswered questions, recent verdicts, pending approval references and limited
+sourcing evidence. A follow-up such as “order the insufficient materials for
+this order” uses the saved shortage quantity and material code to enter the
+existing supplier-selection flow. Supplier selection drafts a PO only after the
+user picks a server-listed supplier; approval still requires a manager. A new
+business topic clears old shortage references. Supplier lead times may be
 reused for the same material set for five minutes; quantities and cost estimates
 are recomputed or omitted. A quantity-only or date-only follow-up reuses the
 missing product/date context. Purchase and approval intent is never inherited

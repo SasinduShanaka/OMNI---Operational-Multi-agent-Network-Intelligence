@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 class ConversationStateTests(unittest.TestCase):
     def test_verified_shortage_is_available_for_contextual_procurement(self):
-        from agents.conversation_context import get_context, remember_context
+        from agents.operations.conversation_context import get_context, remember_context
         response = {
             "intent": "operational_plan", "status": "success",
             "goal": {"objective": "evaluate_order_feasibility", "product_name": "Grey Hoodie",
@@ -22,7 +22,7 @@ class ConversationStateTests(unittest.TestCase):
         self.assertEqual(state.blocking_materials[0]["shortage"], 8200)
 
     def test_contextual_order_uses_shortage_without_asking_material_again(self):
-        from agents.conversation_context import get_context, remember_context
+        from agents.operations.conversation_context import get_context, remember_context
         from backend.main import AskRequest, _process_ask, procurement_sessions
         from backend.auth import principal
         response = {
@@ -62,6 +62,18 @@ class ConversationStateTests(unittest.TestCase):
                     "name": "Injected Mill", "estimated_total": 1.0}}))
         self.assertEqual(result["status"], "selecting")
         pipeline.assert_not_called()
+
+    def test_new_topic_clears_old_order_shortages(self):
+        from agents.operations.conversation_context import contextual_shortages, get_context, remember_context
+        remember_context("topic-switch", "topic-user", {
+            "intent": "operational_plan", "status": "success",
+            "goal": {"objective": "evaluate_order_feasibility", "product_name": "Grey Hoodie", "quantity": 5000},
+            "result": {"production": {"status": "AT_RISK", "blocking_materials": [{
+                "status": "SHORTAGE", "material_code": "FAB-004", "shortage": 8200}]}}})
+        remember_context("topic-switch", "topic-user", {
+            "intent": "inventory_status", "status": "success", "result": {"items": []}})
+        state = get_context("topic-switch", "topic-user")
+        self.assertEqual(contextual_shortages("Order the insufficient materials for this order", state), [])
 
 
 if __name__ == "__main__":

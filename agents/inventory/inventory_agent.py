@@ -37,7 +37,7 @@ def assess_inventory_evidence(facts, goal: dict | None = None):
 # ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 
 load_dotenv(ENV_PATH)

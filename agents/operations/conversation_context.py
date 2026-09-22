@@ -64,12 +64,60 @@ def get_context(session_id: str | None, user_id: str | None) -> ConversationCont
     return None
 
 
+def remember_pending_approvals(session_id: str | None, user_id: str | None,
+                               pending: list[dict]) -> None:
+    """Store only server-returned pending PO identifiers for this principal."""
+    if not session_id or not user_id:
+        return
+    key = _key(session_id, user_id)
+    with _lock:
+        context = _contexts.get(key) or ConversationContext(session_id=session_id)
+        context.pending_approvals = [{name: item.get(name) for name in
+            ("run_id", "po_id", "supplier", "material", "status")}
+            for item in pending[:20] if item.get("run_id")]
+        context.updated_at = datetime.now(timezone.utc)
+        if len(_contexts) >= MAX_CONTEXTS and key not in _contexts:
+            oldest = min(_contexts, key=lambda item: _contexts[item].updated_at)
+            _contexts.pop(oldest, None)
+        _contexts[key] = context
+
+
 def remember_context(session_id: str | None, user_id: str | None, response: dict) -> None:
     """Keep only structured business state; never store prompts or secrets."""
     if not session_id or not user_id or response.get("status") == "blocked":
         return
     goal = response.get("goal") or {}
     if goal.get("objective") != "evaluate_order_feasibility":
+        key = _key(session_id, user_id)
+        with _lock:
+            context = _contexts.get(key) or ConversationContext()
+            context.session_id = session_id
+            context.last_business_intent = response.get("intent")
+            context.last_conversation_intent = "procurement" if response.get("intent") == "procurement" else "other"
+            context.recent_turns = [*context.recent_turns[-4:], {"intent": response.get("intent"),
+                "status": response.get("status")}]
+            if response.get("intent") not in {"procurement", "approval_followup"}:
+                context.active_topic = response.get("intent")
+                context.active_goal = {}
+                context.current_goal = {}
+                context.current_order = None
+                context.current_product = None
+                context.blocking_materials = []
+                context.referenced_materials = []
+                context.production_findings = {}
+            if response.get("intent") == "procurement":
+                context.supplier_options = [{name: item.get(name) for name in
+                    ("supplier_id", "name", "category", "lead_time_days", "rating", "estimated_total")}
+                    for item in (response.get("suppliers") or [])[:20] if isinstance(item, dict)]
+            if response.get("intent") == "low_stock_procurement" and response.get("status") == "success":
+                context.inventory_findings = {"low_stock": [{name: item.get(name) for name in
+                    ("material_code", "material_name", "current_stock", "reorder_level", "unit")}
+                    for item in (response.get("results") or [])[:20] if isinstance(item, dict)]}
+            context.updated_at = datetime.now(timezone.utc)
+            if len(_contexts) >= MAX_CONTEXTS and key not in _contexts:
+                oldest = min(_contexts, key=lambda item: _contexts[item].updated_at)
+                _contexts.pop(oldest, None)
+            _contexts[key] = context
         return
     key = _key(session_id, user_id)
     with _lock:
@@ -87,10 +135,14 @@ def remember_context(session_id: str | None, user_id: str | None, response: dict
         context.current_order = {name: goal.get(name) for name in ("product_name", "sku", "quantity", "deadline")}
         context.last_user_intent = response.get("intent")
         context.pending_questions = [response.get("answer", "")[:160]] if response.get("status") == "needs_more_info" else []
+        context.unresolved_questions = context.pending_questions.copy()
         result = response.get("result") or {}
         production = result.get("production") or {}
         verified_shortages = []
-        if response.get("status") in {"success", "partial"} and production.get("status") in {"AT_RISK", "INFEASIBLE"}:
+        review = response.get("review") or {}
+        if (response.get("status") in {"success", "partial"} and
+                production.get("status") in {"AT_RISK", "INFEASIBLE"} and
+                not response.get("contradictions") and review.get("valid", True)):
             for item in production.get("blocking_materials", [])[:20]:
                 if (item.get("status") == "SHORTAGE" and item.get("material_code") and
                         isinstance(item.get("shortage"), (int, float)) and item["shortage"] > 0):
@@ -148,7 +200,7 @@ def resolve_followup(message: str, context: ConversationContext | None) -> str:
     if number:
         quantity = int(number.group(1).replace(",", ""))
     deadline = goal.get("deadline")
-    from agents.operations_agent import _extract_date
+    from agents.operations.operations_agent import _extract_date
     parsed_date = _extract_date(message)
     if parsed_date:
         deadline = parsed_date
@@ -159,7 +211,7 @@ def resolve_followup(message: str, context: ConversationContext | None) -> str:
 
 def contextual_shortages(message: str, context: ConversationContext | None) -> list[dict]:
     """Resolve an explicit procurement request against verified current-order shortages."""
-    if not context or context.active_topic != "production_order":
+    if not context or context.active_topic != "production_order" or context.pending_approvals:
         return []
     text = message.lower()
     if not re.search(r"\b(?:order|buy|purchase|procure|source|replenish|draft)\b", text):

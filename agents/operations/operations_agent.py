@@ -37,13 +37,13 @@ from backend.mcp.factory_operations.client import (
     get_product_materials,
     check_production_feasibility,
 )
-from agents.forecast_product import resolve_forecast_product
+from agents.forecast.forecast_product import resolve_forecast_product
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 
 load_dotenv(ENV_PATH)
@@ -1726,7 +1726,7 @@ def _execute_specialist_request(user_request: str):
             }
 
         if selection.get("mode") == "comparison":
-            from agents.forecast_comparison import compare_last_month
+            from agents.forecast.forecast_comparison import compare_last_month
             try:
                 comparisons = compare_last_month([selection["sku"]] if selection["status"] == "matched" else [p["sku"] for p in products])
             except Exception:
@@ -2815,7 +2815,7 @@ def build_operations_graph():
     return graph.compile()
 
 
-from agents.operations_workflow import build_operations_graph as build_supervisor_graph
+from agents.operations.operations_workflow import build_operations_graph as build_supervisor_graph
 
 operations_graph = build_supervisor_graph()
 
@@ -2887,7 +2887,7 @@ def process_request(user_request: str, context=None):
     attack_kind = _prompt_attack_kind(user_request)
     if attack_kind:
         return _security_response(attack_kind)
-    from agents.conversation_context import resolve_followup
+    from agents.operations.conversation_context import resolve_followup
     resolved_request = resolve_followup(user_request, context)
     final_state = operations_graph.invoke({"user_request": resolved_request,
                                            "original_request": user_request,

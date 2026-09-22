@@ -10,7 +10,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from agents import forecast_agent, inventory_agent, production_agent
+from agents.forecast import forecast_agent
+from agents.inventory import inventory_agent
+from agents.production import production_agent
 
 
 mcp = FastMCP("OMNI Factory Operations Server")
@@ -262,7 +264,7 @@ def production_get_summary() -> dict:
 def report_generate(scope: dict[str, Any]) -> dict:
     """Build a read-only, evidence-grounded factory management report."""
     # Lazy import avoids loading reporting code for requests that do not use it.
-    from agents.report_agent import build_report
+    from agents.reports.report_agent import build_report
 
     return build_report(scope)
 

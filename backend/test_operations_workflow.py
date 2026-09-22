@@ -5,7 +5,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from agents import operations_agent as ops
+from agents.operations import operations_agent as ops
 from backend.mcp.supply_chain import erp_server, tms_server
 
 
@@ -89,7 +89,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(result["procurement"][0]["run"]["status"], "awaiting_approval")
 
     def test_supervisor_limit(self):
-        from agents.operations_workflow import supervisor
+        from agents.operations.operations_workflow import supervisor
         state = {"goal": {"objective": "unknown"}, "decision": {}, "user_request": "x",
                  "completed_steps": [], "evidence": {}, "plan": [], "iteration": 8,
                  "max_iterations": 8, "status": "running"}
@@ -130,7 +130,7 @@ class SupervisorTests(unittest.TestCase):
         approve.assert_not_called()
 
     def test_material_arrival_reduces_available_capacity(self):
-        from agents import production_agent
+        from agents.production import production_agent
         baseline = {"status": "FEASIBLE", "days_available": 20, "working_days": 16,
                     "spare_capacity_per_day": 100, "capacity_per_day": 150}
         with patch.object(production_agent, "check_capacity", return_value=baseline):

@@ -58,8 +58,8 @@ class VerificationResult(BaseModel):
 
 
 def _ops():
-    # Import at execution time: operations_agent creates this graph at import time.
-    from agents import operations_agent
+    # operations_agent creates this graph at import time; defer the import.
+    from agents.operations import operations_agent
     return operations_agent
 
 
@@ -336,10 +336,10 @@ def _legacy(state, agent):
     status = "success" if result.get("status") in ("success", "init_session") else result.get("status", "error")
     analysis = None
     if agent == "inventory" and result.get("intent") != "inventory_add" and status == "success":
-        from agents.inventory_agent import assess_inventory_evidence
+        from agents.inventory.inventory_agent import assess_inventory_evidence
         analysis = assess_inventory_evidence(facts, state["goal"])
     elif agent == "forecast" and isinstance(facts, dict):
-        from agents.forecast_agent import assess_forecast_evidence
+        from agents.forecast.forecast_agent import assess_forecast_evidence
         analysis = assess_forecast_evidence(facts, state["goal"])
     return _record(state, agent, facts, status, result.copy(), result=analysis)
 
@@ -362,7 +362,7 @@ def inventory_agent(state):
     if state["goal"]["objective"] == "low_stock_procurement":
         try:
             items = _read_with_retry(state, "inventory", _ops().get_low_stock)
-            from agents.inventory_agent import assess_inventory_evidence
+            from agents.inventory.inventory_agent import assess_inventory_evidence
             return _record(state, "inventory", items,
                            result=assess_inventory_evidence(items, state["goal"]))
         except Exception as error:
@@ -379,7 +379,7 @@ def forecast_agent(state):
         return _record(state, "forecast", {"error": "SKU unavailable"}, "error")
     try:
         result = _read_with_retry(state, "forecast", lambda: _ops().forecast_demand(sku, periods=3, save_audit=False))
-        from agents.forecast_agent import assess_forecast_evidence
+        from agents.forecast.forecast_agent import assess_forecast_evidence
         analysis = assess_forecast_evidence(result, state["goal"])
         return _record(state, "forecast", result,
                        "success" if result.get("status") == "success" else "error", result=analysis)
@@ -402,7 +402,7 @@ def production_agent(state):
             result = _read_with_retry(state, "production", lambda: _ops().check_production_feasibility(
                 sku=goal["sku"], product_name=goal["product_name"],
                 quantity=goal["quantity"], required_date=goal["deadline"]))
-        from agents.production_agent import assess_production_evidence
+        from agents.production.production_agent import assess_production_evidence
         analysis = assess_production_evidence(result, goal, sourcing if sourcing.get("lead_time_days") is not None else None)
         return _record(state, "production", result,
                        "success" if result.get("status") in ("FEASIBLE", "AT_RISK", "INFEASIBLE") else "error",
@@ -437,7 +437,7 @@ def supply_chain_agent(state):
     else:
         return _record(state, "supply_chain", {"error": "No sourcing goal available"}, "error")
     try:
-        from agents.conversation_context import reusable_sourcing
+        from agents.operations.conversation_context import reusable_sourcing
         cached = (reusable_sourcing(state.get("session_context"), materials)
                   if goal["objective"] == "evaluate_order_feasibility" else None)
         result = cached or _read_with_retry(state, "supply_chain", lambda: asyncio.run(analyze_shortages(materials)))
@@ -466,7 +466,7 @@ def knowledge_agent(state):
 
 def report_agent(state):
     """Run the existing report specialist without giving the planner write access."""
-    from agents.report_agent import build_report
+    from agents.reports.report_agent import build_report
     try:
         result = build_report({"domains": ["inventory", "production"]})
         return _record(state, "report", result)
@@ -476,7 +476,7 @@ def report_agent(state):
 
 def reviewer_agent(state):
     """Review the current evidence without operational tools or write access."""
-    from agents.reviewer_agent import MAX_REVIEW_ROUNDS, review_evidence
+    from agents.reviewer.reviewer_agent import MAX_REVIEW_ROUNDS, review_evidence
     latest_production = _latest(state, "production") or {}
     proposed = {key: latest_production.get(key) for key in ("status", "producible_quantity", "shortfall")
                 if latest_production.get(key) is not None}
@@ -610,7 +610,7 @@ def synthesize(state):
                      "next_actions": [item.get("task") for item in state.get("open_agent_requests", [])],
                      "operational_events": state.get("events", []),
                      "retry_counts": state.get("retry_counts", {})})
-    from agents.conversation_agent import compose_answer
+    from agents.operations.conversation_agent import compose_answer
     response["answer"] = compose_answer(response)
     return {**state, "response": response}
 
