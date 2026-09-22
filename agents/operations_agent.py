@@ -112,6 +112,20 @@ class OperationsState(TypedDict, total=False):
     max_iterations: int
     status: str
     stop_reason: str | None
+    known_facts: dict
+    unknowns: list[str]
+    agent_messages: list[dict]
+    open_agent_requests: list[dict]
+    assumptions: list[str]
+    contradictions: list[str]
+    confidence: str | None
+    review: dict
+    review_rounds: int
+    reviewed_steps: int
+    events: list[dict]
+    retry_counts: dict
+    original_request: str
+    session_context: dict
 
 
 # ============================================================
@@ -121,7 +135,14 @@ class OperationsState(TypedDict, total=False):
 def _extract_common_entities(user_request: str) -> dict:
     sku_match = re.search(r"\bGAR-\d{3}\b", user_request, re.IGNORECASE)
     material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", user_request, re.IGNORECASE)
-    quantity_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", user_request)
+    # Product IDs and dates are not order quantities.
+    quantity_text = re.sub(r"\b(?:GAR|FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", " ", user_request, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b20\d{2}-\d{2}-\d{2}\b", " ", quantity_text)
+    quantity_text = re.sub(
+        r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+20\d{2})?\b",
+        " ", quantity_text, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b(?:in|within)\s+\d+\s+(?:days?|weeks?)\b", " ", quantity_text, flags=re.IGNORECASE)
+    quantity_match = re.search(r"\b(\d[\d,]*(?:\.\d+)?)\b", quantity_text)
 
     return {
         "material_name": None,
@@ -240,6 +261,21 @@ def _extract_date(user_request: str) -> str | None:
     iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
     if iso_match:
         return iso_match.group(1)
+
+    month_match = re.search(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b",
+        text,
+    )
+    if month_match:
+        month = datetime.strptime(month_match.group(1), "%B").month
+        year = int(month_match.group(3)) if month_match.group(3) else today.year
+        try:
+            candidate = today.replace(year=year, month=month, day=int(month_match.group(2)))
+        except ValueError:
+            return None
+        if not month_match.group(3) and candidate < today:
+            candidate = candidate.replace(year=year + 1)
+        return candidate.isoformat()
 
     return None
 
@@ -2846,12 +2882,16 @@ def _security_response(kind: str) -> dict:
     }
 
 
-def process_request(user_request: str):
+def process_request(user_request: str, context=None):
     """Run the Operations Agent as a LangGraph supervisor over specialist agents."""
     attack_kind = _prompt_attack_kind(user_request)
     if attack_kind:
         return _security_response(attack_kind)
-    final_state = operations_graph.invoke({"user_request": user_request})
+    from agents.conversation_context import resolve_followup
+    resolved_request = resolve_followup(user_request, context)
+    final_state = operations_graph.invoke({"user_request": resolved_request,
+                                           "original_request": user_request,
+                                           "session_context": context.model_dump(mode="json") if context else {}})
     response = final_state["response"]
     response["llm_used"] = client is not None
     response.setdefault("orchestrator", "LangGraph")

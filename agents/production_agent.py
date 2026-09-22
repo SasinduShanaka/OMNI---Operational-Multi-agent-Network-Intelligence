@@ -692,6 +692,45 @@ def check_capacity_after_material_arrival(
     return result
 
 
+def assess_production_evidence(facts: dict, goal: dict, supply_evidence: dict | None = None):
+    """Interpret MCP-backed production facts and request missing domain evidence.
+
+    This function does not recalculate capacity or mutate production records.
+    """
+    from agents.schemas import AgentRequest, AgentResult
+
+    status = facts.get("status")
+    if status not in {"FEASIBLE", "AT_RISK", "INFEASIBLE"}:
+        return AgentResult(agent="production", status="error",
+                           facts=facts, errors=[facts.get("error") or facts.get("message") or "Production evidence is unavailable."],
+                           confidence_level="low")
+    shortages = [item for item in facts.get("blocking_materials", [])
+                 if item.get("status") == "SHORTAGE" and float(item.get("shortage") or 0) > 0]
+    requests = []
+    if shortages and not supply_evidence and not facts.get("conditional_on_material_arrival"):
+        for material in shortages:
+            code = material.get("material_code") or material.get("material_name") or "material"
+            requests.append(AgentRequest(target_agent="supply_chain",
+                task=f"Find a compliant supplier and lead time for {code}.",
+                reason="Material arrival affects production feasibility.",
+                required_facts=["lead_time_days", "supplier_compliance"]))
+    risks = []
+    if facts.get("shortfall", 0) > 0:
+        risks.append(f"Spare-capacity shortfall: {facts['shortfall']} units.")
+    for material in shortages:
+        risks.append(f"{material.get('material_code') or material.get('material_name')} is short by {material['shortage']} {material.get('unit', 'units')}.")
+    assumptions = []
+    if facts.get("conditional_on_material_arrival"):
+        assumptions.append(f"Materials arrive after the sourced {facts.get('lead_time_days')} day lead time.")
+        assumptions.append("Current line utilization remains unchanged.")
+    if risks and facts.get("sku"):
+        from agents.memory import remember_domain
+        remember_domain("production", {"topic": facts["sku"], "finding": risks[0]})
+    return AgentResult(agent="production", status="needs_collaboration" if requests else "success",
+                       conclusion=status, facts=facts, risks=risks, assumptions=assumptions,
+                       confidence_level="medium" if requests or assumptions else "high", requests=requests)
+
+
 # ============================================================
 # 9. SUGGEST REALLOCATION
 # ============================================================

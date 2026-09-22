@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, StringConstraints
 from typing import Annotated
 
-from backend.auth import current_user_name
+from backend.auth import current_user_name, require_manager
 
 supply_chain_router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -277,6 +277,7 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     Approve a pending PO, complete the pipeline (freight + tracking),
     and automatically send a PO email to the supplier via Brevo SMTP.
     """
+    require_manager()
     try:
         from backend.supply_chain.orchestrator import approve_pipeline
 
@@ -327,6 +328,7 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
 @supply_chain_router.post("/reject/{run_id}")
 async def reject_po(run_id: str):
     """Mark a pipeline as rejected by the human manager."""
+    require_manager()
     from backend.supply_chain.orchestrator import reject_pipeline
     result = await reject_pipeline(run_id)
     if result.get("error"):
@@ -558,6 +560,7 @@ async def delete_supplier(supplier_id: int):
 @supply_chain_router.put("/purchase-orders/{po_id}/approve")
 async def manual_approve_po(po_id: int):
     """Directly approve a PO in the database."""
+    require_manager()
     from backend.supply_chain.run_store import load_run
     saved = load_run(po_id=po_id)
     if saved:
@@ -600,6 +603,7 @@ async def manual_approve_po(po_id: int):
 @supply_chain_router.put("/purchase-orders/{po_id}/reject")
 async def manual_reject_po(po_id: int):
     """Directly reject a PO in the database."""
+    require_manager()
     from backend.supply_chain.run_store import load_run
     saved = load_run(po_id=po_id)
     if saved:

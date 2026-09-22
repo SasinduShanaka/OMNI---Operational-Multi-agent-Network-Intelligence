@@ -27,6 +27,38 @@ MIN_HISTORY_POINTS = 3
 MAX_FORECAST_PERIODS = 12
 
 
+def assess_forecast_evidence(facts: dict, goal: dict | None = None):
+    """Interpret forecast quality and capacity implications from model output."""
+    from agents.schemas import AgentRequest, AgentResult
+
+    goal = goal or {}
+    if facts.get("status") != "success":
+        return AgentResult(agent="forecast", status="error", facts=facts,
+                           errors=[facts.get("message") or "Forecast unavailable."],
+                           confidence_level="low")
+    quality = facts.get("data_quality") or {}
+    accuracy = facts.get("accuracy") or {}
+    confidence_level = "high" if quality.get("can_forecast") and accuracy.get("test_points", 0) >= 3 else "medium"
+    risks = []
+    requests = []
+    capacity = goal.get("planned_capacity")
+    demand = facts.get("forecast")
+    if isinstance(demand, (int, float)) and isinstance(capacity, (int, float)) and demand > capacity:
+        risks.append(f"Forecast demand exceeds the supplied capacity by {demand - capacity:g} units.")
+        requests.append(AgentRequest(target_agent="production",
+            task="Check whether production can cover forecast demand.",
+            reason="Forecast exceeds the supplied capacity evidence.",
+            required_facts=["capacity", "deadline_feasibility"]))
+    if facts.get("sku") and accuracy.get("accuracy_percent") is not None:
+        from agents.memory import remember_domain
+        remember_domain("forecast", {"topic": facts["sku"],
+            "finding": f"Backtest accuracy {accuracy['accuracy_percent']}% from {accuracy.get('test_points', 0)} points."})
+    return AgentResult(agent="forecast", status="needs_collaboration" if requests else "success",
+                       conclusion=facts.get("trend") or "DEMAND_FORECAST", facts=facts,
+                       risks=risks, requests=requests, confidence_level=confidence_level,
+                       assumptions=["Forecasts are estimates based on recorded demand history."])
+
+
 def get_forecast_products():
     """Return the distinct products available in MongoDB demand history."""
     if demand_collection is None:

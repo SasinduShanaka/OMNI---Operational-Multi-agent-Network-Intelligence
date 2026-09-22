@@ -470,6 +470,34 @@ async def analyze_shortages(materials: list[dict]) -> dict:
             "requires_approval": False, "purchase_orders_created": 0}
 
 
+def assess_sourcing_evidence(facts: dict, goal: dict | None = None):
+    """Summarize verified sourcing and request schedule reassessment, never approval."""
+    from agents.schemas import AgentRequest, AgentResult
+
+    goal = goal or {}
+    options = facts.get("options") or []
+    lead = facts.get("lead_time_days")
+    requests = []
+    if options and lead is not None and goal.get("objective") == "evaluate_order_feasibility":
+        requests.append(AgentRequest(target_agent="production",
+            task=f"Reassess capacity after a {lead}-day material lead time.",
+            reason="Supplier lead time changes the remaining production window.",
+            required_facts=["conditional_capacity", "deadline_feasibility"]))
+    if options:
+        from agents.memory import remember_domain
+        first = options[0]
+        remember_domain("supply_chain", {
+            "topic": first.get("material_code") or first.get("material_name") or "material",
+            "finding": f"Supplier option observed with {first.get('lead_time_days')} day estimated lead time."})
+    return AgentResult(agent="supply_chain",
+                       status="needs_collaboration" if requests else "success" if options else "partial",
+                       conclusion="SOURCING_OPTIONS" if options else "SOURCING_UNVERIFIED",
+                       facts=facts, requests=requests,
+                       risks=[item.get("error", "Supplier unavailable") for item in facts.get("errors", [])],
+                       assumptions=["Supplier lead times and costs are estimates, not confirmed bookings."],
+                       confidence_level="medium" if options else "low")
+
+
 if __name__ == "__main__":
     # Test cases
     print(process_chat_message("I need 400 meters of organic cotton"))

@@ -73,8 +73,9 @@ def book_shipment(
     eta: str
 ) -> dict:
     """
-    Book a shipment for an approved Purchase Order in the TMS database.
-    Only call this after a PO has been approved via the ERP server.
+    WRITE-CAPABLE: Book a shipment only for an ERP-approved Purchase Order.
+    The tool independently checks ERP status before any TMS insert. Do not
+    call from analysis or on an agent's unverified approval claim.
 
     Args:
         po_id:       The approved Purchase Order ID (reference).
