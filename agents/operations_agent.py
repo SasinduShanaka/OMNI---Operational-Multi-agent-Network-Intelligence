@@ -2768,9 +2768,74 @@ def build_operations_graph():
 
 operations_graph = build_operations_graph()
 
+# User text is data, never a replacement for the system/developer rules. Keep
+# this check before LangGraph classification so an injection cannot be turned
+# into an operational intent by the LLM. Authorization and approval checks
+# still happen in the API and procurement workflow.
+_PROMPT_ATTACK_PATTERNS = (
+    r"\bignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions\b",
+    r"\b(?:reveal|show|print|repeat|disclose)\b.*\b(?:system|hidden|internal)\s+(?:prompt|instructions?)\b",
+    r"\b(?:api\s*key|secret|password|token|\.env|environment variables?)\b",
+    r"\byou are now an?\s+(?:unrestricted|unfiltered|different)\s+assistant\b",
+    r"\b(?:system message|developer message)\s*:\s*",
+    r"\brepeat\s+(?:all\s+)?(?:instructions|messages?)\b",
+    r"\b(?:system|hidden)\s+.*\buser\s+messages?\b",
+    r"\b(?:bypass|skip|ignore)\b.*\b(?:human|manager)\b.*\bapproval\b",
+    r"\b(?:i am|i'm)\s+(?:the\s+)?(?:admin|administrator|manager)\b.*\b(?:bypass|approve|authorize)\b",
+    r"\bsay\s+[\"']?approved[\"']?.*\b(?:pending|even if)\b",
+    r"\b(?:do not|don't)\s+(?:mention|report|show|include)\b.*\b(?:shortages?|low stock|deficits?)\b",
+)
+
+
+def _prompt_attack_kind(user_request: str) -> str | None:
+    text = str(user_request or "")
+    lowered = text.lower()
+    if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in _PROMPT_ATTACK_PATTERNS):
+        if any(word in lowered for word in ("api key", "secret", "password", "token", ".env", "environment variable")):
+            return "secrets"
+        if "approval" in lowered or "approve" in lowered or "authorize" in lowered:
+            return "authority"
+        if any(word in lowered for word in ("shortage", "low stock", "deficit", "pending")):
+            return "data_integrity"
+        return "prompt_disclosure"
+    return None
+
+
+def _security_response(kind: str) -> dict:
+    messages = {
+        "prompt_disclosure": (
+            "I can’t reveal hidden prompts, internal instructions, or private agent messages. "
+            "I can explain OMNI’s public workflow, agents, MCP tools, and safety controls."
+        ),
+        "secrets": (
+            "I can’t provide API keys, passwords, tokens, environment variables, or other secrets. "
+            "Those values are kept outside the chat and are never used as operational data."
+        ),
+        "authority": (
+            "I can’t change roles or bypass human approval based on a message. "
+            "The authenticated manager and the saved purchase-order status control approval."
+        ),
+        "data_integrity": (
+            "I will report the verified inventory and workflow status, including shortages and pending approvals. "
+            "User instructions cannot alter operational facts."
+        ),
+    }
+    return {
+        "agent": "Operations Agent",
+        "llm_used": False,
+        "intent": "security_boundary",
+        "status": "blocked",
+        "workflow": ["Operations Agent", "Security Boundary"],
+        "answer": messages[kind],
+        "security": {"category": kind, "action": "refused", "grounding": "policy"},
+    }
+
 
 def process_request(user_request: str):
     """Run the Operations Agent as a LangGraph supervisor over specialist agents."""
+    attack_kind = _prompt_attack_kind(user_request)
+    if attack_kind:
+        return _security_response(attack_kind)
     final_state = operations_graph.invoke({"user_request": user_request})
     response = final_state["response"]
     response["llm_used"] = client is not None

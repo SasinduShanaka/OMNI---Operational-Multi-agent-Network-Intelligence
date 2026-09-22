@@ -15,6 +15,7 @@ Usage:
 """
 
 import os
+import atexit
 
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -52,6 +53,7 @@ if not MONGO_URI:
 # client — and therefore a single connection pool — per process.
 
 client = MongoClient(MONGO_URI)
+atexit.register(client.close)
 
 db = client[DATABASE_NAME]
 

@@ -4,12 +4,11 @@ import { createChatReportPreview, isReportRequest, isFollowupReport, reportSourc
 import ManagementReport from './ManagementReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
 import { ScenePage } from './FactoryScene'
-import OmniMark, { OmniAvatar } from './OmniMark'
+import { OmniAvatar } from './OmniMark'
 import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
-import SystemReadiness from './SystemReadiness'
 import { apiFetch } from '../api/http'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 function compactWorkflow(workflow) {
   const internalSupplyChainSteps = new Set([
@@ -608,7 +607,7 @@ function CopyButton({ value }) {
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery, handleSend, isLatest, isAsking }) {
+function AgentResponse({ data, setActivePage, handleSend, isLatest, isAsking }) {
   if (!data) {
     return null
   }

@@ -48,6 +48,16 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
    # Recommended for stable authentication tokens across deployments.
    AUTH_SECRET="generate-a-long-random-secret"
    AUTH_TOKEN_TTL_HOURS=12
+   # Browser origin allowed to send cookie-authenticated requests
+   FRONTEND_ORIGIN=http://localhost:5173
+   # Set true when serving through HTTPS
+   COOKIE_SECURE=false
+   # Optional SMTP settings used for operational notifications
+   BREVO_SMTP_HOST=smtp-relay.brevo.com
+   BREVO_SMTP_PORT=587
+   BREVO_SMTP_USER="..."
+   BREVO_SMTP_PASS="..."
+   SENDER_EMAIL="..."
    # Add your OpenAI API key or other LLM provider keys here if needed
    ```
 
@@ -59,6 +69,13 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
    uvicorn backend.main:app --reload
    ```
    *The backend will be available at `http://localhost:8000`*
+
+7. **Build the local knowledge indexes (first setup or after changing source documents):**
+   ```powershell
+   python knowledge/build_index.py
+   python knowledge/supply_chain/rag/chroma_setup.py
+   ```
+   The first command indexes production and market documents. The second indexes supplier contract PDFs used for compliance evidence. The readiness endpoint reports whether MongoDB, SQLite, Chroma, the LLM provider, and email are available.
 
 ---
 
@@ -82,7 +99,7 @@ Welcome to **OMNI**! This project is an intelligent, multi-agent network designe
 
 ### User accounts
 
-Open the frontend and select **Create account**. Accounts are stored in the MongoDB `users` collection. Passwords are stored as salted PBKDF2 hashes; the original password is never stored. After signing in, the browser sends a time-limited bearer token to protected backend routes. **Sign out** revokes the user's existing tokens.
+Open the frontend and select **Create account**. Accounts are stored in the MongoDB `users` collection. Passwords are stored as salted PBKDF2 hashes; the original password is never stored. After signing in, the backend sets an HTTP-only session cookie and checks the browser origin on state-changing requests. The first account is a manager; later accounts start as viewers. Managers can change roles from the user-management endpoint. **Sign out** clears the session cookie and revokes the user's existing tokens.
 
 ### MCP architecture
 

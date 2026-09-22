@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from pymongo.errors import DuplicateKeyError
 
@@ -99,6 +100,17 @@ class EndpointTests(unittest.TestCase):
             auth.login(auth.LoginRequest(email="unknown@example.com", password="Wrong123"))
         self.assertEqual(error.exception.status_code, 401)
         self.assertEqual(error.exception.detail, "Email or password is incorrect.")
+
+    def test_cookie_session_and_manager_permissions(self):
+        from backend.main import app
+
+        viewer = {"user_id": "viewer", "name": "Viewer", "email": "v@example.com", "role": "viewer"}
+        manager = {"user_id": "manager", "name": "Manager", "email": "m@example.com", "role": "manager"}
+        with patch("backend.main.authenticate_token", side_effect=lambda token: viewer if token == "viewer" else manager):
+            client = TestClient(app)
+            self.assertEqual(client.get("/auth/me", cookies={"omni_session": "viewer"}).status_code, 200)
+            self.assertEqual(client.post("/inventory", json={"material_name": "Cotton", "current_stock": 1, "reorder_level": 2}, cookies={"omni_session": "viewer"}).status_code, 403)
+            self.assertEqual(client.post("/inventory", json={"material_name": "Cotton", "current_stock": 1, "reorder_level": 2}, cookies={"omni_session": "manager"}, headers={"Origin": "https://malicious.example"}).status_code, 403)
 
 
 if __name__ == "__main__":

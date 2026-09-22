@@ -7,7 +7,7 @@ async function authenticate(path, payload) {
     body: JSON.stringify(payload),
   })
   const result = await responseData(response, `Unable to ${path}.`)
-  setAccessToken(result.access_token)
+  setAccessToken(null)
   return result.user
 }
 

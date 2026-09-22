@@ -1,21 +1,20 @@
-from inventory_agent import check_inventory
+"""Inventory behavior with isolated collection data."""
+
+import unittest
+from unittest.mock import patch
+
+from agents import inventory_agent
 
 
-# Run Inventory Agent
-results = check_inventory()
+class InventoryAgentTests(unittest.TestCase):
+    def test_low_stock_shortage_uses_reorder_level(self):
+        rows = [{"material_name": "Cotton", "material_code": "FAB-001",
+                 "current_stock": 20, "reorder_level": 50, "unit": "meters"}]
+        with patch.object(inventory_agent.inventory_collection, "find", return_value=rows):
+            result = inventory_agent.check_inventory()
+        self.assertEqual(result[0]["status"], "LOW_STOCK")
+        self.assertEqual(result[0]["shortage"], 30)
 
 
-# Display results
-print("\n==== OMNI INVENTORY AGENT ====\n")
-
-for item in results:
-
-    print(f"Material: {item['material_name']}")
-    print(f"Code: {item['material_code']}")
-    print(f"Status: {item['status']}")
-    print(f"Current Stock: {item['current_stock']} {item['unit']}")
-    print(f"Reorder Level: {item['reorder_level']} {item['unit']}")
-    print(f"Shortage: {item['shortage']} {item['unit']}")
-    print(f"Recommendation: {item['recommendation']}")
-
-    print("-" * 50)
+if __name__ == "__main__":
+    unittest.main()

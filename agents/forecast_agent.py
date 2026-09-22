@@ -3,6 +3,7 @@
 import math
 import os
 import re
+import atexit
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
@@ -15,6 +16,8 @@ load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 MONGO_URI = os.getenv("MONGO_URI")
 DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000) if MONGO_URI else None
+if mongo_client is not None:
+    atexit.register(mongo_client.close)
 db = mongo_client[DATABASE_NAME] if mongo_client else None
 demand_collection = db["demand_history"] if db is not None else None
 activity_collection = db["agent_activity"] if db is not None else None

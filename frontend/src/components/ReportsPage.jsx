@@ -6,7 +6,7 @@ import ForecastPdfPreview from './ForecastPdfPreview'
 import { ScenePage, SkeletonCard } from './FactoryScene'
 import { apiFetch } from '../api/http'
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 const domains = [['inventory', 'Inventory'], ['forecast', 'Demand forecast'], ['production', 'Production'], ['supply_chain', 'Supply chain']]
 const button = 'rounded-lg bg-[#1d4ed8] px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-[#1e40af] disabled:opacity-50'
 const field = 'mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-900 focus:border-blue-400 focus:outline-none'

@@ -1,5 +1,6 @@
 import os
 import re
+import atexit
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -22,6 +23,7 @@ DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 # ============================================================
 
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+atexit.register(client.close)
 
 db = client[DATABASE_NAME]
 

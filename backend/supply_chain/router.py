@@ -4,10 +4,18 @@ FastAPI router for all /supply-chain/* endpoints.
 Mounted in backend/main.py under the /supply-chain prefix.
 """
 
+import logging
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
+from typing import Annotated
+
+from backend.auth import current_user_name
 
 supply_chain_router = APIRouter()
+logger = logging.getLogger(__name__)
+ShortText = Annotated[str, StringConstraints(min_length=1, max_length=100, strip_whitespace=True)]
 
 
 # ------------------------------------------------------------------
@@ -15,42 +23,47 @@ supply_chain_router = APIRouter()
 # ------------------------------------------------------------------
 
 class RunRequest(BaseModel):
-    material_type:       str        = "fabric_mill"
-    requirement_id:      int        = 2
-    qty:                 float      = 300.0
-    total_value:         float      = 78000.0
-    compliance_keywords: list[str]  = []
-    destination:         str        = "Colombo, LK"
-    targeted_supplier:   str | None = None
-    po_details:          dict       = {}  # material_name, color_spec, unit from chatbot
+    material_type: Literal["fabric_mill", "trim_vendor", "dye_house"] = "fabric_mill"
+    requirement_id: int = Field(default=2, gt=0)
+    qty: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    total_value: float = Field(default=78000.0, ge=0, allow_inf_nan=False)
+    compliance_keywords: list[ShortText] = Field(default_factory=list, max_length=20)
+    destination: str = Field(default="Colombo, LK", max_length=120)
+    targeted_supplier: str | None = Field(default=None, max_length=120)
+    po_details: dict = Field(default_factory=dict)
 
 
 class ApproveRequest(BaseModel):
-    approved_by: str = "Human Manager"
+    approved_by: str | None = None
 
 class UpdateSupplierRequest(BaseModel):
-    category: str
-    lead_time_days: int
-    rating: float
+    category: Literal["fabric_mill", "trim_vendor", "dye_house"]
+    lead_time_days: int = Field(ge=0, le=365)
+    rating: float = Field(ge=0, le=5, allow_inf_nan=False)
 
 class UpdateShipmentStatusRequest(BaseModel):
-    status: str
+    status: Literal["booked", "in_transit", "delayed", "delivered", "cancelled"]
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
 
 
 class GatherRequest(BaseModel):
-    conversation_history: list  # [{"role": "user"|"assistant", "content": "..."}]
+    conversation_history: list[ChatTurn] = Field(max_length=30)
 
 
 class FindSuppliersRequest(BaseModel):
-    material_type: str          # "fabric_mill" | "trim_vendor" | "dye_house"
-    qty: float = 300.0
-    color_spec: str = "any"
-    compliance_keywords: list = []
-    dimensions: dict = {}       # product-specific dimensions from gathering phase
+    material_type: Literal["fabric_mill", "trim_vendor", "dye_house"]
+    qty: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    color_spec: str = Field(default="any", max_length=120)
+    compliance_keywords: list[ShortText] = Field(default_factory=list, max_length=20)
+    dimensions: dict = Field(default_factory=dict)
 
 
 # ------------------------------------------------------------------
@@ -66,10 +79,11 @@ async def gather_requirements_endpoint(request: GatherRequest):
     """
     try:
         from backend.supply_chain.supervisor import gather_requirements
-        result = gather_requirements(request.conversation_history)
+        result = gather_requirements([turn.model_dump() for turn in request.conversation_history])
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -123,7 +137,8 @@ async def find_suppliers_endpoint(request: FindSuppliersRequest):
 
         return {"suppliers": suppliers, "total": len(suppliers)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -164,7 +179,8 @@ async def chat_pipeline(request: ChatRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -220,7 +236,8 @@ async def run_pipeline(request: RunRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -242,10 +259,11 @@ async def track_shipment(shipment_id: int):
         from tracking_agent import run_tracking_agent
         result = await run_tracking_agent(shipment_id=shipment_id, check_weather=True)
         if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
+            raise HTTPException(status_code=503, detail="Shipment tracking is unavailable.")
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -262,10 +280,10 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     try:
         from backend.supply_chain.orchestrator import approve_pipeline
 
-        result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by)
+        result = await approve_pipeline(run_id=run_id, approved_by=current_user_name())
 
         if result.get("status") == "failed":
-            raise HTTPException(status_code=422, detail=result.get("error", "Pipeline failed after approval."))
+            raise HTTPException(status_code=422, detail="Approval could not be completed. Check the pipeline status.")
 
         if result.get("error"):
             raise HTTPException(status_code=409, detail=result["error"])
@@ -280,7 +298,7 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
             "run_id":           run_id,
             "status":           "completed",
             "po_id":            po_info.get("po_id"),
-            "approved_by":      request.approved_by,
+            "approved_by":      current_user_name(),
             "shipment_id":      shipment.get("shipment_id"),
             "carrier":          shipment.get("carrier_name"),
             "mode":             shipment.get("mode"),
@@ -297,7 +315,8 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -383,7 +402,7 @@ async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailR
         result = send_po_email(po_data, supplier_email, notes=request.notes)
 
         if not result.get("sent"):
-            raise HTTPException(status_code=503, detail=result.get("error", "Email sending failed."))
+            raise HTTPException(status_code=503, detail="Supplier email could not be sent. Check email configuration.")
 
         return {
             "status":    "sent",
@@ -394,7 +413,8 @@ async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailR
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 
@@ -416,7 +436,8 @@ async def pipeline_status(run_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -436,7 +457,8 @@ async def track_shipment(shipment_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -462,7 +484,8 @@ async def list_suppliers():
         conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -503,7 +526,8 @@ async def update_supplier(supplier_id: int, request: UpdateSupplierRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.delete("/suppliers/{supplier_id}")
 async def delete_supplier(supplier_id: int):
@@ -522,7 +546,8 @@ async def delete_supplier(supplier_id: int):
         conn.close()
         return {"status": "success", "supplier_id": supplier_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -547,8 +572,8 @@ async def manual_approve_po(po_id: int):
         ensure_erp_db_ready()
         conn = get_erp_db_connection()
         updated = conn.execute(
-            "UPDATE purchase_orders SET status = 'approved', approved_by = 'Human Manager' WHERE po_id = ? AND status IN ('draft', 'pending_approval')",
-            (po_id,)
+            "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ? AND status IN ('draft', 'pending_approval')",
+            (current_user_name(), po_id)
         )
         conn.commit()
         conn.close()
@@ -557,7 +582,7 @@ async def manual_approve_po(po_id: int):
             raise HTTPException(status_code=409, detail="PO is not awaiting approval. Refresh the purchase orders.")
 
         from backend.supply_chain.po_email import send_approved_po_email
-        email_result = send_approved_po_email(po_id, "Human Manager")
+        email_result = send_approved_po_email(po_id, current_user_name())
 
         return {
             "status": "success",
@@ -569,7 +594,8 @@ async def manual_approve_po(po_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.put("/purchase-orders/{po_id}/reject")
 async def manual_reject_po(po_id: int):
@@ -599,7 +625,8 @@ async def manual_reject_po(po_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.delete("/purchase-orders/{po_id}")
 async def delete_purchase_order(po_id: int):
@@ -618,7 +645,8 @@ async def delete_purchase_order(po_id: int):
         conn.close()
         return {"status": "success", "po_id": po_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.get("/purchase-orders")
 async def list_purchase_orders():
@@ -647,7 +675,8 @@ async def list_purchase_orders():
         conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 
 # ------------------------------------------------------------------
@@ -681,7 +710,8 @@ async def list_shipments():
         conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.put("/shipments/{shipment_id}/status")
 async def update_shipment_status_manual(shipment_id: int, request: UpdateShipmentStatusRequest):
@@ -703,7 +733,8 @@ async def update_shipment_status_manual(shipment_id: int, request: UpdateShipmen
         conn.close()
         return {"status": "success", "shipment_id": shipment_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
 
 @supply_chain_router.delete("/shipments/{shipment_id}")
 async def delete_shipment(shipment_id: int):
@@ -722,4 +753,5 @@ async def delete_shipment(shipment_id: int):
         conn.close()
         return {"status": "success", "shipment_id": shipment_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")

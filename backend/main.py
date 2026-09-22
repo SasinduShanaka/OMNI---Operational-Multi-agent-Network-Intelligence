@@ -3,11 +3,14 @@ import sys
 from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime
+from collections import defaultdict, deque
+from threading import Lock
+from time import monotonic
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 
@@ -42,7 +45,7 @@ load_dotenv(ENV_PATH)
 # Supply chain pipeline router (Dinuja's component)
 from backend.supply_chain.router import supply_chain_router
 from backend.report_router import router as report_router
-from backend.auth import authenticate_token, router as auth_router
+from backend.auth import authenticate_token, router as auth_router, principal, current_user_name
 
 
 @asynccontextmanager
@@ -54,6 +57,15 @@ async def lifespan(app):
     finally:
         stop.set()
         await asyncio.to_thread(thread.join, 5)
+        from database.connection import client as database_client
+        from agents import inventory_agent, forecast_agent
+        from backend.report_service import get_db
+        database_client.close()
+        inventory_agent.client.close()
+        if forecast_agent.mongo_client is not None:
+            forecast_agent.mongo_client.close()
+        if get_db.cache_info().currsize:
+            get_db().client.close()
 
 
 # ============================================================
@@ -73,16 +85,39 @@ app = FastAPI(
 # ============================================================
 
 PUBLIC_PATHS = {"/", "/health", "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc", "/auth/login", "/auth/register"}
+_request_times = defaultdict(deque)
+_rate_lock = Lock()
+
+
+def rate_limited(key: str, limit: int, window: int = 60) -> bool:
+    now = monotonic()
+    with _rate_lock:
+        calls = _request_times[key]
+        while calls and calls[0] <= now - window:
+            calls.popleft()
+        if len(calls) >= limit:
+            return True
+        calls.append(now)
+        return False
 
 
 @app.middleware("http")
 async def require_authentication(request: Request, call_next):
+    path = request.url.path
+    if request.method in {"POST", "PUT", "PATCH"} and len(await request.body()) > 65_536:
+        return JSONResponse(status_code=413, content={"detail": "Request body is too large."})
+    if path in {"/auth/login", "/auth/register"} or path in {"/ask", "/ask-omni"} or path.startswith("/supply-chain/gather"):
+        client_ip = request.client.host if request.client else "unknown"
+        limit = 10 if path in {"/auth/login", "/auth/register"} else 30
+        if rate_limited(f"{client_ip}:{path}", limit):
+            return JSONResponse(status_code=429, content={"detail": "Too many requests. Please try again shortly."})
     if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
         return await call_next(request)
 
     authorization = request.headers.get("Authorization", "")
     scheme, _, token = authorization.partition(" ")
-    user = authenticate_token(token) if scheme.lower() == "bearer" and token else None
+    token = token if scheme.lower() == "bearer" and token else request.cookies.get("omni_session", "")
+    user = authenticate_token(token) if token else None
     if user is None:
         return JSONResponse(
             status_code=401,
@@ -90,7 +125,23 @@ async def require_authentication(request: Request, call_next):
             headers={"WWW-Authenticate": "Bearer"},
         )
     request.state.user = user
-    return await call_next(request)
+    if request.method not in {"GET", "HEAD"} and "omni_session" in request.cookies:
+        origin = request.headers.get("origin")
+        if origin and origin not in {
+            "http://localhost:5173", "http://127.0.0.1:5173",
+            "http://localhost:5174", "http://127.0.0.1:5174",
+            "http://localhost:5175", "http://127.0.0.1:5175",
+            os.getenv("FRONTEND_ORIGIN", ""),
+        }:
+            return JSONResponse(status_code=403, content={"detail": "Untrusted request origin."})
+    role = user.get("role", "viewer")
+    if request.method not in {"GET", "HEAD"} and path not in {"/auth/logout"} and role not in {"manager", "user"}:
+        return JSONResponse(status_code=403, content={"detail": "Manager access is required for this action."})
+    context_token = principal.set(user)
+    try:
+        return await call_next(request)
+    finally:
+        principal.reset(context_token)
 
 
 # Keep CORS outside authentication so browsers can read 401 responses.
@@ -103,6 +154,7 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://localhost:5175",
         "http://127.0.0.1:5175",
+        *([os.getenv("FRONTEND_ORIGIN")] if os.getenv("FRONTEND_ORIGIN") else []),
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -120,37 +172,37 @@ app.include_router(auth_router)
 # ============================================================
 
 class AskRequest(BaseModel):
-    message: str
-    session_id: str | None = None
+    message: str = Field(min_length=1, max_length=4000)
+    session_id: str | None = Field(default=None, max_length=128)
     payload: dict | None = None
-    request_id: str | None = None
+    request_id: str | None = Field(default=None, max_length=128)
 
 
 class MaterialRequest(BaseModel):
-    material_name: str | None = None
-    material_code: str | None = None
+    material_name: str | None = Field(default=None, max_length=120)
+    material_code: str | None = Field(default=None, max_length=32)
 
 
 class InventoryCreateRequest(BaseModel):
-    material_name: str
-    current_stock: float
-    reorder_level: float
-    unit: str = "units"
-    material_code: str | None = None
-    classification: str | None = "B"
+    material_name: str = Field(min_length=1, max_length=120)
+    current_stock: float = Field(ge=0, allow_inf_nan=False)
+    reorder_level: float = Field(ge=0, allow_inf_nan=False)
+    unit: str = Field(default="units", max_length=32)
+    material_code: str | None = Field(default=None, max_length=32)
+    classification: str | None = Field(default="B", pattern="^[ABC]$")
 
 
 class ForecastRequest(BaseModel):
-    sku: str
-    periods: int = 1
+    sku: str = Field(pattern=r"(?i)^GAR-\d{3}$")
+    periods: int = Field(default=1, ge=1, le=12)
     save_audit: bool = True
 
 
 class FeasibilityRequest(BaseModel):
-    sku: str | None = None
-    product_name: str | None = None
-    quantity: float
-    required_date: str
+    sku: str | None = Field(default=None, max_length=32)
+    product_name: str | None = Field(default=None, max_length=120)
+    quantity: float = Field(gt=0, allow_inf_nan=False)
+    required_date: str = Field(max_length=32)
 
 
 # ============================================================
@@ -224,6 +276,8 @@ def record_agent_activity(action: str, result: dict | None = None, session_id: s
         "session_id": session_id,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
+    if principal.get():
+        record["user_id"] = principal.get()["user_id"]
 
     try:
         from database.connection import db
@@ -387,7 +441,7 @@ def handle_approval_followup(session_id: str, request: AskRequest):
                 else:
                     completed.append({**item, "approval": rejected, "status": "rejected"})
             else:
-                approved = asyncio.run(approve_pipeline(item["run_id"], approved_by="Human Manager"))
+                approved = asyncio.run(approve_pipeline(item["run_id"], approved_by=current_user_name()))
                 if approved.get("error") or approved.get("status") == "failed":
                     failed.append({**item, "error": approved.get("error", "Approval failed.")})
                 else:

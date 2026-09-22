@@ -210,8 +210,8 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
   const [typingText, setTypingText] = useState('')
   const [history, setHistory] = useState([])       // sent to /gather each turn
   const [requirements, setRequirements] = useState(null)
-  const [selectedSupplier, setSelectedSupplier] = useState(null)
   const messagesEndRef = useRef(null)
+  const sendMessageRef = useRef(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -223,10 +223,10 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
 
   useEffect(() => {
     if (prefillQuery && isOpen && !isTyping) {
-      sendMessage(prefillQuery)
+      sendMessageRef.current?.(prefillQuery)
       if (clearQuery) clearQuery()
     }
-  }, [prefillQuery, isOpen])
+  }, [prefillQuery, isOpen, isTyping, clearQuery])
 
   const pushOmni = (type, content, data = null) =>
     setMessages(prev => [...prev, { role: 'omni', type, content, ...(data ? { data } : {}) }])
@@ -292,11 +292,11 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       pushOmni('error', `Error: ${err.message}`)
     }
   }
+  sendMessageRef.current = sendMessage
 
   // ── User selects a supplier ─────────────────────────────────────
   const handleSelectSupplier = async (supplier) => {
     if (phase !== 'selecting' || isTyping) return
-    setSelectedSupplier(supplier)
 
     // Freeze the supplier list visually
     setMessages(prev => prev.map(m =>
@@ -395,7 +395,6 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
     setPhase('gathering')
     setHistory([])
     setRequirements(null)
-    setSelectedSupplier(null)
     setMessages([{
       role: 'omni', type: 'text',
       content: 'Hi! I\'m your procurement assistant. What materials do you need? For example: "I need cotton fabric" or "500 navy blue zippers".'
@@ -405,7 +404,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
   const handleSend = (e) => { e.preventDefault(); sendMessage(input) }
 
   // ── Render a single message ─────────────────────────────────────
-  const renderMsg = (msg, idx) => {
+  const _renderMsg = (msg, idx) => {
     if (msg.type === 'text') {
       const html = (msg.content || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>')
       return <p className="text-sm text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
@@ -599,7 +598,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
                     <div className="flex justify-between"><span className="text-gray-500">Supplier</span><span className="font-semibold text-gray-800">{msg.data.supplier?.supplier_name}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">PO #</span><span className="font-mono font-semibold text-gray-800">#{msg.data.po?.po_id}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Value</span><span className="font-semibold text-gray-800">LKR {msg.data.po?.total_value?.toLocaleString()}</span></div>
-                    <div className="mt-2 p-2 bg-green-50 rounded-lg text-xs text-green-700 border border-green-100">✓ Compliance verified</div>
+                    <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-700 border border-blue-100">Review supplier terms before authorizing.</div>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleApprove(msg.data.run_id, msg.data.po?.po_id)} disabled={isTyping} className="flex-1 bg-gradient-to-r from-[#3b82f6] to-[#2563eb] text-white text-xs font-bold py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">Authorize</button>

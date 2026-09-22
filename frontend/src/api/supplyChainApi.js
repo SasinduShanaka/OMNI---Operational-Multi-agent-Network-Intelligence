@@ -1,6 +1,6 @@
-import { apiFetch } from './http'
+import { apiFetch, API_BASE_URL as SERVER_URL } from './http'
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'}/supply-chain`
+const API_BASE_URL = `${SERVER_URL}/supply-chain`
 
 export const supplyChainApi = {
   getPipelineStatus: async (runId) => {
@@ -119,21 +119,6 @@ export const supplyChainApi = {
       return await response.json()
     } catch (error) {
       console.error('Error rejecting PO:', error)
-      throw error
-    }
-  },
-
-  // Track an active shipment (calls the AI tracking agent)
-  trackShipment: async (shipmentId) => {
-    try {
-      const response = await apiFetch(`${API_BASE_URL}/track/${shipmentId}`)
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to track shipment')
-      }
-      return await response.json()
-    } catch (error) {
-      console.error('Error tracking shipment:', error)
       throw error
     }
   },
