@@ -7,6 +7,7 @@ import { ScenePage } from './FactoryScene'
 import { OmniAvatar } from './OmniMark'
 import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
 import { apiFetch } from '../api/http'
+import { focusChatComposer } from './chatFocus'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
@@ -40,7 +41,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
   const [requestId, setRequestId] = useState(null)
   const [progress, setProgress] = useState(null)
   const messagesEndRef = useRef(null)
+  const composerRef = useRef(null)
   const { draft, messages, isAsking, error } = chatState
+
+  useEffect(() => {
+    focusChatComposer(composerRef.current, isAsking)
+  }, [isAsking])
 
   useEffect(() => {
     if (!isAsking || !requestId) return undefined
@@ -274,7 +280,10 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
           {messages.length > 0 && (
             <button
-              onClick={() => updateChatState({ messages: [], error: '', draft: '' })}
+              onClick={() => {
+                updateChatState({ messages: [], error: '', draft: '' })
+                focusChatComposer(composerRef.current, false)
+              }}
               className="rounded-lg border border-white/70 bg-white/90 px-3 py-2 text-[11px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
             >
               New conversation
@@ -382,6 +391,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
           <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 transition focus-within:border-[#2563eb] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#3b82f6]/15">
 
             <textarea
+              ref={composerRef}
               rows={1}
               value={draft}
               onChange={(event) => updateChatState({ draft: event.target.value })}
