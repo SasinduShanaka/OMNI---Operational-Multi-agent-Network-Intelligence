@@ -87,8 +87,10 @@ db.sqlite3-journal
 # SQLite databases (all environments)
 *.db
 
-# ChromaDB vector store (generated, supply chain RAG)
-# knowledge/supply_chain/rag/chroma_store/
+# ChromaDB generated vector stores
+
+knowledge/chroma_store/
+knowledge/supply_chain/rag/chroma_store/
 
 # Flask stuff:
 instance/
@@ -323,5 +325,3 @@ uniSlot/
 # MCP server config — contains API keys, never commit
 .mcp.json
 
-# RAG vector store (rebuild with: python knowledge/build_index.py)
-# knowledge/chroma_store/
