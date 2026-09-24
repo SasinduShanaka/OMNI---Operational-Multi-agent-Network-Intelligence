@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from datetime import date
 
 # --------------------------------------------------
@@ -67,7 +68,8 @@ def draft_po(
     supplier_id: int,
     requirement_id: int,
     qty: float,
-    total_value: float
+    total_value: float,
+    po_details: dict | None = None
 ) -> dict:
     """
     Create a new Purchase Order in the ERP with status 'pending_approval'.
@@ -108,10 +110,10 @@ def draft_po(
         cursor = conn.execute(
             """
             INSERT INTO purchase_orders
-                (supplier_id, requirement_id, qty, total_value, order_date, status)
-            VALUES (?, ?, ?, ?, ?, 'pending_approval')
+                (supplier_id, requirement_id, qty, total_value, order_date, status, po_details)
+            VALUES (?, ?, ?, ?, ?, 'pending_approval', ?)
             """,
-            (supplier_id, requirement_id, qty, total_value, today)
+            (supplier_id, requirement_id, qty, total_value, today, json.dumps(po_details) if po_details else None)
         )
         conn.commit()
         po_id = cursor.lastrowid
@@ -158,7 +160,7 @@ def approve_po(po_id: int, approved_by: str = "Human Manager") -> dict:
             return {"error": f"Purchase Order with id={po_id} not found."}
 
         if po["status"] == "approved":
-            return {"po_id": po_id, "status": "approved", "message": "PO was already approved."}
+            return {"po_id": po_id, "status": "approved", "already_approved": True, "message": "PO was already approved."}
 
         conn.execute(
             "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ?",

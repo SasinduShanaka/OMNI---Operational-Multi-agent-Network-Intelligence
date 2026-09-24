@@ -67,6 +67,7 @@ def build_po_email_data(po_id: int, approved_by: str = "Human Manager") -> tuple
         "expected_delivery_date": row_dict["expected_delivery_date"] or "",
         "approved_by": row_dict["approved_by"] or approved_by,
         "material_name": po_details.get("material_name", "Material"),
+        "color_base": po_details.get("color_base", "-"),
         "color_spec": po_details.get("color_spec", "-"),
         "dimensions": po_details.get("dimensions", {}),
         "compliance_keywords": po_details.get("compliance_keywords", []),

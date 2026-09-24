@@ -156,6 +156,9 @@ async def node_approve_and_ship(state: PipelineState) -> PipelineState:
             approval_data = getattr(approval, "data", None)
             if getattr(approval, "is_error", False) or (isinstance(approval_data, dict) and approval_data.get("error")):
                 return {**state, "status": "failed", "error": "ERP could not approve this purchase order."}
+            
+            if isinstance(approval_data, dict) and approval_data.get("already_approved"):
+                return {**state, "status": "failed", "error": "PO was already approved. Pipeline aborted."}
 
         approved_po = {**state["po"], "status": "approved", "approved_by": approved_by}
         state = {**state, "po": approved_po}

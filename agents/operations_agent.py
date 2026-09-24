@@ -2271,6 +2271,14 @@ def _node_low_stock_inventory(state: OperationsState) -> OperationsState:
     }
 
 
+def _extract_color(material_name: str) -> str:
+    if not material_name: return "-"
+    known_colors = ["navy blue", "navy", "royal blue", "sky blue", "red", "maroon", "green", "olive", "white", "off white", "black", "grey", "gray", "beige", "khaki", "yellow", "orange", "purple", "pink", "natural", "undyed", "organic"]
+    lower_name = material_name.lower()
+    for kc in known_colors:
+        if kc in lower_name: return kc.title()
+    return "-"
+
 def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
     report_progress("Supply Chain Agent", "Finding suppliers for material shortages")
     import asyncio
@@ -2292,6 +2300,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
             if mode == "order":
                 from backend.supply_chain.orchestrator import start_pipeline
 
+                color = _extract_color(item.get("material_name", ""))
                 run = asyncio.run(start_pipeline(
                     material_type=material_type,
                     requirement_id=requirement_id,
@@ -2304,6 +2313,8 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                         "material_name": item.get("material_name"),
                         "unit": item.get("unit"),
                         "price_basis": "planning_estimate",
+                        "color_base": color,
+                        "color_spec": color,
                     },
                 ))
                 supply_chain_results.append({
@@ -2543,6 +2554,7 @@ def _node_procurement_evidence(state: OperationsState) -> OperationsState:
         qty = shortage
 
         try:
+            color = _extract_color(material.get("material_name", ""))
             run = asyncio.run(start_pipeline(
                 material_type=material_type,
                 requirement_id=requirement_id,
@@ -2556,6 +2568,8 @@ def _node_procurement_evidence(state: OperationsState) -> OperationsState:
                     "unit": material.get("unit"),
                     "required_date": state.get("required_date"),
                     "price_basis": "planning_estimate",
+                    "color_base": color,
+                    "color_spec": color,
                 },
             ))
             procurement_runs.append({

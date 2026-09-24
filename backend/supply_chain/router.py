@@ -84,6 +84,12 @@ async def find_suppliers_endpoint(request: FindSuppliersRequest):
     ranked by rating, with per-supplier individual pricing.
     """
     try:
+        from backend.supply_chain.security_utils import validate_retrieval_query
+        
+        # 4. IR Security: Validate the retrieval parameter
+        if not validate_retrieval_query(request.material_type):
+            raise HTTPException(status_code=400, detail="Invalid material_type parameter. Possible Retrieval Manipulation detected.")
+            
         import sys, os
         DB_DIR = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
@@ -260,6 +266,11 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
     and automatically send a PO email to the supplier via Brevo SMTP.
     """
     try:
+        # Basic Authorization/API Security Check
+        approved_by = request.approved_by.strip() if request.approved_by else ""
+        if not approved_by or len(approved_by) < 3 or "manager" not in approved_by.lower():
+            raise HTTPException(status_code=403, detail="Unauthorized: Only a valid manager can approve POs.")
+            
         from backend.supply_chain.orchestrator import approve_pipeline
 
         result = await approve_pipeline(run_id=run_id, approved_by=request.approved_by)
@@ -274,7 +285,9 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
         tracking = result.get("tracking") or {}
         po_info  = result.get("po") or {}
 
-        # ── Auto-send PO email to supplier via Brevo ──────────────────────────
+        email_sent = result.get("email_sent", False)
+        email_recipient = result.get("email_recipient", "")
+        email_error = result.get("email_error", "")
 
         return {
             "run_id":           run_id,
@@ -289,9 +302,9 @@ async def approve_po(run_id: str, request: ApproveRequest = ApproveRequest()):
             "eta":              shipment.get("eta"),
             "track_status":     tracking.get("status"),
             "summary":          tracking.get("summary", ""),
-            "email_sent":       result.get("email_sent", False),
-            "email_recipient":  result.get("email_recipient", ""),
-            "email_error":      result.get("email_error", ""),
+            "email_sent":       email_sent,
+            "email_recipient":  email_recipient,
+            "email_error":      email_error,
         }
 
     except HTTPException:
@@ -373,6 +386,7 @@ async def resend_po_email(po_id: int, request: ResendEmailRequest = ResendEmailR
             "expected_delivery_date": row_dict["expected_delivery_date"] or "",
             "approved_by":           row_dict["approved_by"] or "Human Manager",
             "material_name":         po_details.get("material_name", "—"),
+            "color_base":            po_details.get("color_base", "—"),
             "color_spec":            po_details.get("color_spec", "—"),
             "dimensions":            po_details.get("dimensions", {}),
             "compliance_keywords":   po_details.get("compliance_keywords", []),
