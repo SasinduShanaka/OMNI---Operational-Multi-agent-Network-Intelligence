@@ -57,7 +57,7 @@ No credentials are included in this guide. Confirm the supplier's stored email a
 ## Regression Checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest backend.test_evaluation -v
+.\.venv\Scripts\python.exe -m unittest backend.test_factory_operations_mcp backend.test_auth backend.test_evaluation backend.test_reports -v
 ```
 
 From `frontend`:

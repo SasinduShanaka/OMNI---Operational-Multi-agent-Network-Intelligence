@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { apiFetch } from '../api/http'
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 export default function DemandDataQuality({ sku, result }) {
   const [quality, setQuality] = useState(null)

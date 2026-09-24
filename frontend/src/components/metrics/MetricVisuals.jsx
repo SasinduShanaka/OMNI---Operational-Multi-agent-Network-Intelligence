@@ -8,11 +8,7 @@
 // direct-labelled rather than relying on colour alone.
 // ============================================================
 
-export const SERIES = {
-  blue:    '#2563eb',
-  amber:   '#d97706',
-  emerald: '#059669',
-}
+import { SERIES } from './metricColors'
 
 // Neutral track behind a meter — a surface, never a series.
 const TRACK = '#e2e8f0'

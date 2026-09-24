@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from agents.forecast_comparison import compare_product
+from agents.forecast.forecast_comparison import compare_product
 
 
 class ComparisonTests(TestCase):
@@ -13,7 +13,7 @@ class ComparisonTests(TestCase):
         fake = SimpleNamespace(analyze_demand_records=Mock(return_value=(history, {'issues': issues or [], 'invalid_records': invalid})), _fit_holt=fit)
         storage = Mock()
         storage.find.return_value.sort.return_value = []
-        with patch.dict('sys.modules', {'agents.forecast_agent': fake}):
+        with patch.dict('sys.modules', {'agents.forecast.forecast_agent': fake}):
             result = compare_product(sku, Mock(find=Mock(return_value=[])), storage, datetime(2026, 9, 20, tzinfo=timezone.utc))
         return result, fit
 
@@ -50,7 +50,7 @@ class ComparisonTests(TestCase):
         fake = SimpleNamespace(analyze_demand_records=Mock(return_value=(history, {'issues': [], 'invalid_records': 0})), _fit_holt=fit)
         audits = Mock()
         audits.find.return_value.sort.return_value = []
-        with patch.dict('sys.modules', {'agents.forecast_agent': fake}):
+        with patch.dict('sys.modules', {'agents.forecast.forecast_agent': fake}):
             result = compare_product('GAR-001', Mock(find=Mock(return_value=[])), audits, datetime(2026, 9, 20, tzinfo=timezone.utc))
         fit.assert_called_once_with([100, 110, 120])
         self.assertEqual(result['prediction_source'], 'Historical backtest estimate')
@@ -61,7 +61,7 @@ class ComparisonTests(TestCase):
         analyze = Mock(return_value=([{'date': date(2026, 8, 1), 'quantity': actual, 'product_name': 'Classic Black Polo'}], {'issues': [], 'invalid_records': 0}))
         storage = Mock()
         storage.find.return_value.sort.return_value = audits
-        with patch.dict('sys.modules', {'agents.forecast_agent': SimpleNamespace(analyze_demand_records=analyze)}):
+        with patch.dict('sys.modules', {'agents.forecast.forecast_agent': SimpleNamespace(analyze_demand_records=analyze)}):
             result = compare_product('GAR-001', Mock(find=Mock(return_value=[])), storage, datetime(2026, 9, 20, tzinfo=timezone.utc))
         self.assertEqual(storage.find.call_args.args[0]['timestamp']['$lt'], datetime(2026, 8, 1, tzinfo=timezone.utc))
         return result

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { ScenePage, SkeletonCard, SkeletonStatRow, SkeletonTable } from './FactoryScene'
-import { SceneStage } from './FactoryScene'
 import { apiFetch } from '../api/http'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 function InventoryPage() {
   const [inventory, setInventory] = useState([])

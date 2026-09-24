@@ -3,6 +3,7 @@
 import math
 import os
 import re
+import atexit
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
@@ -10,11 +11,13 @@ from typing import Any
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 MONGO_URI = os.getenv("MONGO_URI")
 DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000) if MONGO_URI else None
+if mongo_client is not None:
+    atexit.register(mongo_client.close)
 db = mongo_client[DATABASE_NAME] if mongo_client else None
 demand_collection = db["demand_history"] if db is not None else None
 activity_collection = db["agent_activity"] if db is not None else None
@@ -22,6 +25,38 @@ activity_collection = db["agent_activity"] if db is not None else None
 SKU_PATTERN = re.compile(r"^GAR-\d{3}$", re.IGNORECASE)
 MIN_HISTORY_POINTS = 3
 MAX_FORECAST_PERIODS = 12
+
+
+def assess_forecast_evidence(facts: dict, goal: dict | None = None):
+    """Interpret forecast quality and capacity implications from model output."""
+    from agents.schemas import AgentRequest, AgentResult
+
+    goal = goal or {}
+    if facts.get("status") != "success":
+        return AgentResult(agent="forecast", status="error", facts=facts,
+                           errors=[facts.get("message") or "Forecast unavailable."],
+                           confidence_level="low")
+    quality = facts.get("data_quality") or {}
+    accuracy = facts.get("accuracy") or {}
+    confidence_level = "high" if quality.get("can_forecast") and accuracy.get("test_points", 0) >= 3 else "medium"
+    risks = []
+    requests = []
+    capacity = goal.get("planned_capacity")
+    demand = facts.get("forecast")
+    if isinstance(demand, (int, float)) and isinstance(capacity, (int, float)) and demand > capacity:
+        risks.append(f"Forecast demand exceeds the supplied capacity by {demand - capacity:g} units.")
+        requests.append(AgentRequest(target_agent="production",
+            task="Check whether production can cover forecast demand.",
+            reason="Forecast exceeds the supplied capacity evidence.",
+            required_facts=["capacity", "deadline_feasibility"]))
+    if facts.get("sku") and accuracy.get("accuracy_percent") is not None:
+        from agents.memory import remember_domain
+        remember_domain("forecast", {"topic": facts["sku"],
+            "finding": f"Backtest accuracy {accuracy['accuracy_percent']}% from {accuracy.get('test_points', 0)} points."})
+    return AgentResult(agent="forecast", status="needs_collaboration" if requests else "success",
+                       conclusion=facts.get("trend") or "DEMAND_FORECAST", facts=facts,
+                       risks=risks, requests=requests, confidence_level=confidence_level,
+                       assumptions=["Forecasts are estimates based on recorded demand history."])
 
 
 def get_forecast_products():

@@ -1,22 +1,20 @@
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 const TOKEN_KEY = 'omni_access_token'
 
 export function getAccessToken() {
-  return window.localStorage.getItem(TOKEN_KEY)
+  return null
 }
 
-export function setAccessToken(token) {
-  if (token) window.localStorage.setItem(TOKEN_KEY, token)
-  else window.localStorage.removeItem(TOKEN_KEY)
+export function setAccessToken() {
+  // Remove tokens left by older versions; new sessions use an HTTP-only cookie.
+  window.localStorage.removeItem(TOKEN_KEY)
 }
 
 export async function apiFetch(input, options = {}) {
-  const token = getAccessToken()
   const headers = new Headers(options.headers || {})
-  if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const response = await fetch(input, { ...options, headers })
+  const response = await fetch(input, { ...options, headers, credentials: 'include' })
   const url = String(input)
   if (response.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/register')) {
     setAccessToken(null)

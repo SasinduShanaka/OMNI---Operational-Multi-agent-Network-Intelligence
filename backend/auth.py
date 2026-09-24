@@ -9,9 +9,11 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from contextvars import ContextVar
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
+from typing import Literal
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -25,6 +27,20 @@ settings = db["system_config"]
 TOKEN_TTL_HOURS = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "12"))
 PASSWORD_ITERATIONS = 600_000
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+principal: ContextVar[dict | None] = ContextVar("omni_principal", default=None)
+
+
+def current_user_name() -> str:
+    user = principal.get()
+    return user.get("name", "Human Manager") if user else "Human Manager"
+
+
+def require_manager() -> dict:
+    """Authorize a financial approval from the authenticated HTTP principal."""
+    user = principal.get()
+    if not user or user.get("role") != "manager":
+        raise HTTPException(status_code=403, detail="Manager approval is required.")
+    return user
 
 
 class RegisterRequest(BaseModel):
@@ -59,6 +75,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+
+class RoleChangeRequest(BaseModel):
+    role: Literal["manager", "viewer"]
 
 
 def _b64encode(value: bytes) -> str:
@@ -107,7 +127,7 @@ def public_user(user: dict) -> dict:
         "id": user["user_id"],
         "name": user["name"],
         "email": user["email"],
-        "role": user.get("role", "user"),
+        "role": user.get("role", "viewer"),
     }
 
 
@@ -151,14 +171,14 @@ def _auth_response(user: dict) -> dict:
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(request: RegisterRequest):
+def register(request: RegisterRequest, response: Response = None):
     now = datetime.now(timezone.utc)
     user = {
         "user_id": str(uuid.uuid4()),
         "name": request.name,
         "email": request.email,
         "password_hash": hash_password(request.password),
-        "role": "user",
+        "role": "manager" if users.count_documents({}) == 0 else "viewer",
         "active": True,
         "token_version": 0,
         "created_at": now,
@@ -170,17 +190,27 @@ def register(request: RegisterRequest):
         users.insert_one(user)
     except DuplicateKeyError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists.") from error
-    return _auth_response(user)
+    result = _auth_response(user)
+    if response is not None:
+        response.set_cookie("omni_session", result["access_token"], httponly=True,
+                            secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+                            samesite="lax", max_age=TOKEN_TTL_HOURS * 3600)
+    return {"token_type": result["token_type"], "expires_in": result["expires_in"], "user": result["user"]} if response is not None else result
 
 
 @router.post("/login")
-def login(request: LoginRequest):
+def login(request: LoginRequest, response: Response = None):
     email = request.email.strip().lower()
     user = users.find_one({"email": email})
     if not user or not user.get("active") or not verify_password(request.password, user.get("password_hash", "")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
     users.update_one({"user_id": user["user_id"]}, {"$set": {"last_login_at": datetime.now(timezone.utc)}})
-    return _auth_response(user)
+    result = _auth_response(user)
+    if response is not None:
+        response.set_cookie("omni_session", result["access_token"], httponly=True,
+                            secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",
+                            samesite="lax", max_age=TOKEN_TTL_HOURS * 3600)
+    return {"token_type": result["token_type"], "expires_in": result["expires_in"], "user": result["user"]} if response is not None else result
 
 
 @router.get("/me")
@@ -189,9 +219,37 @@ def me(request: Request):
 
 
 @router.post("/logout")
-def logout(request: Request):
+def logout(request: Request, response: Response = None):
     users.update_one(
         {"user_id": request.state.user["user_id"]},
         {"$inc": {"token_version": 1}, "$set": {"logged_out_at": datetime.now(timezone.utc)}},
     )
+    if response is not None:
+        response.delete_cookie("omni_session", samesite="lax")
     return {"status": "signed_out"}
+
+
+@router.put("/users/{user_id}/role")
+def change_user_role(user_id: str, change: RoleChangeRequest, request: Request):
+    if request.state.user.get("role") not in {"manager", "user"}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager access is required.")
+    if user_id == request.state.user["user_id"] and change.role != "manager":
+        raise HTTPException(status.HTTP_409_CONFLICT, "A manager cannot remove their own manager role.")
+    updated = users.find_one_and_update(
+        {"user_id": user_id, "active": True},
+        {"$set": {"role": change.role}, "$inc": {"token_version": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
+    return {"user": public_user(updated)}
+
+
+@router.delete("/me")
+def delete_account(request: Request, response: Response):
+    """Remove account credentials and activity associated with this user ID."""
+    user_id = request.state.user["user_id"]
+    users.delete_one({"user_id": user_id})
+    db["agent_activity"].delete_many({"user_id": user_id})
+    response.delete_cookie("omni_session", samesite="lax")
+    return {"status": "account_deleted"}

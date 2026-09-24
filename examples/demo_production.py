@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from agents.production_agent import (
+from agents.production.production_agent import (
     get_all_lines,
     get_line_utilization,
     identify_bottlenecks,

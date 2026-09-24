@@ -10,14 +10,13 @@ import AuthPage from './components/AuthPage'
 import { FloatCard, SceneStage } from './components/FactoryScene'
 import OmniMark from './components/OmniMark'
 import { authApi } from './api/authApi'
-import { apiFetch, getAccessToken } from './api/http'
+import { apiFetch, API_BASE_URL } from './api/http'
 
 
 // ============================================================
 // API
 // ============================================================
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
 
 
 // ============================================================
@@ -815,10 +814,6 @@ function App() {
   useEffect(() => {
     let active = true
     async function restoreSession() {
-      if (!getAccessToken()) {
-        setAuthLoading(false)
-        return
-      }
       try {
         const currentUser = await authApi.currentUser()
         if (active) setUser(currentUser)
