@@ -29,71 +29,11 @@ MCP_DIR  = os.path.join(BASE_DIR, "backend", "mcp", "supply_chain")
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
 
 
-def _draft_po_in_sqlite(
-    supplier_id: int,
-    requirement_id: int,
-    qty: float,
-    total_value: float,
-    po_details: dict | None = None,
-) -> dict:
-    from datetime import date, timedelta
-
-    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
-    if sqlite_dir not in sys.path:
-        sys.path.insert(0, sqlite_dir)
-    from db import ensure_erp_db_ready, get_erp_db_connection
-
-    ensure_erp_db_ready()
-    conn = get_erp_db_connection()
-    try:
-        expected_delivery = (date.today() + timedelta(days=14)).isoformat()
-        po_details_json = json.dumps(po_details or {})
-        cur = conn.execute(
-            """
-            INSERT INTO purchase_orders
-                (supplier_id, requirement_id, qty, total_value, order_date, expected_delivery_date, status, approved_by, po_details)
-            VALUES (?, ?, ?, ?, ?, ?, 'draft', NULL, ?)
-            """,
-            (supplier_id, requirement_id, qty, total_value, date.today().isoformat(), expected_delivery, po_details_json),
-        )
-        conn.commit()
-        return {
-            "po_id": cur.lastrowid,
-            "supplier_id": supplier_id,
-            "requirement_id": requirement_id,
-            "qty": qty,
-            "total_value": total_value,
-            "status": "draft",
-            "expected_delivery_date": expected_delivery,
-        }
-    finally:
-        conn.close()
-
-
-def _approve_po_in_sqlite(po_id: int, approved_by: str) -> dict:
-    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
-    if sqlite_dir not in sys.path:
-        sys.path.insert(0, sqlite_dir)
-    from db import ensure_erp_db_ready, get_erp_db_connection
-
-    ensure_erp_db_ready()
-    conn = get_erp_db_connection()
-    try:
-        conn.execute(
-            "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ?",
-            (approved_by, po_id),
-        )
-        conn.commit()
-        return {"po_id": po_id, "status": "approved", "approved_by": approved_by}
-    finally:
-        conn.close()
-
-
 # ------------------------------------------------------------------
 # LangChain Tool wrapping MCP
 # ------------------------------------------------------------------
 @tool
-async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total_value: float) -> str:
+async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total_value: float, po_details: dict | None = None) -> str:
     """Drafts a Purchase Order in the ERP system for a given supplier and requirement."""
     from fastmcp import Client
     async with Client(ERP_SERVER) as erp:
@@ -104,6 +44,7 @@ async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total
                 "requirement_id": requirement_id,
                 "qty":            qty,
                 "total_value":    total_value,
+                "po_details":     po_details,
             }
         )
         
@@ -146,14 +87,15 @@ async def run_purchasing_agent(
                         "requirement_id": requirement_id,
                         "qty": qty,
                         "total_value": total_value,
+                        "po_details": po_details,
                     }
                 )
             po_data = draft_result.data if hasattr(draft_result, "data") else draft_result
             if isinstance(po_data, dict) and "result" in po_data:
                 po_data = po_data["result"]
         except Exception as error:
-            print(f"  [Agent 2] MCP unavailable ({error}); drafting PO in SQLite directly.")
-            po_data = _draft_po_in_sqlite(supplier_id, requirement_id, qty, total_value, po_details)
+            print(f"  [Agent 2] ERP MCP unavailable: {error}")
+            raise RuntimeError("Purchase order drafting is unavailable. Check the ERP MCP server.") from error
     else:
         llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
         llm_with_tools = llm.bind_tools([draft_po_tool])
@@ -169,8 +111,12 @@ async def run_purchasing_agent(
             tool_call = msg.tool_calls[0]
             print(f"  [Agent 2] LLM called tool: {tool_call['name']} with args {tool_call['args']}")
 
+            # Inject po_details which the LLM doesn't have in its system prompt
+            tool_args = tool_call['args']
+            tool_args['po_details'] = po_details
+
             # Step 2: Execute tool
-            tool_result = await draft_po_tool.ainvoke(tool_call['args'])
+            tool_result = await draft_po_tool.ainvoke(tool_args)
             po_data = json.loads(tool_result)
 
     if not po_data or "error" in po_data:
@@ -228,8 +174,8 @@ async def run_purchasing_agent(
             if isinstance(approved, dict) and "result" in approved:
                 approved = approved["result"]
         except Exception as error:
-            print(f"  [Agent 2] MCP unavailable ({error}); approving PO in SQLite directly.")
-            approved = _approve_po_in_sqlite(po_id, approved_by)
+            print(f"  [Agent 2] ERP MCP unavailable: {error}")
+            raise RuntimeError("Purchase order approval is unavailable. Check the ERP MCP server.") from error
 
         print(f"\n  [Agent 2] [OK] PO #{po_id} approved by {approved_by}.")
         print(f"  Handing off to Freight Booking Agent...")

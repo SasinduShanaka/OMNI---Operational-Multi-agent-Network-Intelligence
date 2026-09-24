@@ -15,6 +15,8 @@ import time
 from typing import TypedDict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from backend.supply_chain.run_store import save_run, load_run, claim_approval, reject_run
+from backend.agent_progress import report_progress
 
 # ------------------------------------------------------------------
 # Path setup — project root
@@ -68,6 +70,7 @@ class PipelineState(TypedDict, total=False):
 # ------------------------------------------------------------------
 
 async def node_sourcing(state: PipelineState) -> PipelineState:
+    report_progress("Supply Chain Agent", "Checking suppliers and compliance evidence")
     print("\n[Orchestrator] -> Node: Sourcing")
     start_time = time.time()
     targeted = state.get("targeted_supplier")
@@ -86,7 +89,7 @@ async def node_sourcing(state: PipelineState) -> PipelineState:
     except Exception as e:
         elapsed = time.time() - start_time
         print(f"[Timer] node_sourcing failed after {elapsed:.2f} seconds.")
-        return {**state, "status": "failed", "error": f"Sourcing error: {e}", "supplier": None}
+        return {**state, "status": "failed", "error": "Supplier sourcing is unavailable or compliance is unverified. Review the ERP MCP and contract index before continuing.", "supplier": None}
 
 
 # ------------------------------------------------------------------
@@ -94,6 +97,7 @@ async def node_sourcing(state: PipelineState) -> PipelineState:
 # ------------------------------------------------------------------
 
 async def node_draft_po(state: PipelineState) -> PipelineState:
+    report_progress("Supply Chain Agent", "Drafting a purchase order for review")
     print("\n[Orchestrator] -> Node: Draft PO")
     start_time = time.time()
     try:
@@ -135,6 +139,7 @@ async def node_draft_po(state: PipelineState) -> PipelineState:
 # ------------------------------------------------------------------
 
 async def node_approve_and_ship(state: PipelineState) -> PipelineState:
+    report_progress("Supply Chain Agent", "Processing the approved purchase order and freight")
     print("\n[Orchestrator] -> Node: Approve + Freight + Tracking")
     start_time = time.time()
     try:
@@ -147,9 +152,16 @@ async def node_approve_and_ship(state: PipelineState) -> PipelineState:
 
         # Approve the PO via ERP MCP
         async with Client(ERP_SERVER) as erp:
-            await erp.call_tool("approve_po", {"po_id": po_id, "approved_by": approved_by})
+            approval = await erp.call_tool("approve_po", {"po_id": po_id, "approved_by": approved_by})
+            approval_data = getattr(approval, "data", None)
+            if getattr(approval, "is_error", False) or (isinstance(approval_data, dict) and approval_data.get("error")):
+                return {**state, "status": "failed", "error": "ERP could not approve this purchase order."}
+            
+            if isinstance(approval_data, dict) and approval_data.get("already_approved"):
+                return {**state, "status": "failed", "error": "PO was already approved. Pipeline aborted."}
 
         approved_po = {**state["po"], "status": "approved", "approved_by": approved_by}
+        state = {**state, "po": approved_po}
 
         # Freight booking (Agent 3)
         supplier     = state["supplier"]
@@ -165,6 +177,7 @@ async def node_approve_and_ship(state: PipelineState) -> PipelineState:
         )
         if not shipment:
             return {**state, "po": approved_po, "status": "failed", "error": "Freight booking failed."}
+        state = {**state, "shipment": shipment}
 
         # Tracking (Agent 4)
         tracking = await run_tracking_agent(
@@ -260,22 +273,27 @@ async def start_pipeline(
     }
 
     final = await run1_graph.ainvoke(initial_state, config=config)
+    save_run(run_id, final)
     return {"run_id": run_id, **final}
 
 
 async def approve_pipeline(run_id: str, approved_by: str = "Human Manager", send_email: bool = True) -> dict:
     """Run 2: Resume from saved state, approve PO, ship, track."""
-    config = {"configurable": {"thread_id": run_id}}
+    saved = await get_pipeline_state(run_id)
+    if saved.get("error"):
+        return saved
+    if saved.get("status") == "completed":
+        return saved
+    if saved.get("status") != "awaiting_approval" or not claim_approval(run_id):
+        return {"error": "This order is not awaiting approval, or is already being processed. Refresh its status."}
 
-    # Load saved state and inject approval
-    saved = run1_graph.get_state(config)
-    if not saved or not saved.values:
-        return {"error": f"No pipeline found for run_id={run_id}"}
+    resume_state = {**saved, "approved_by": approved_by, "status": "running"}
+    try:
+        final = await run2_graph.ainvoke(resume_state, config={"configurable": {"thread_id": run_id + "_r2"}})
+    except Exception:
+        final = {**saved, "status": "failed", "error": "Approval processing was interrupted. Review the purchase order before retrying."}
 
-    resume_state = {**saved.values, "approved_by": approved_by, "status": "running"}
-    final = await run2_graph.ainvoke(resume_state, config={"configurable": {"thread_id": run_id + "_r2"}})
-
-    if send_email and final.get("status") != "failed":
+    if send_email and (final.get("po") or {}).get("status") == "approved":
         email_result = {"sent": False, "error": "PO email was not attempted."}
         po_id = (final.get("po") or {}).get("po_id")
         if po_id:
@@ -292,13 +310,25 @@ async def approve_pipeline(run_id: str, approved_by: str = "Human Manager", send
             "email_error": email_result.get("error", "") if not email_result.get("sent") else "",
         }
 
+    save_run(run_id, final)
     return {"run_id": run_id, **final}
 
 
 async def get_pipeline_state(run_id: str) -> dict:
     """Return the current saved state of a pipeline."""
+    persisted = load_run(run_id=run_id)
+    if persisted:
+        return persisted
     config = {"configurable": {"thread_id": run_id}}
     saved = run1_graph.get_state(config)
     if not saved or not saved.values:
         return {"error": f"No pipeline found for run_id={run_id}"}
+    save_run(run_id, saved.values)
     return {"run_id": run_id, **saved.values}
+
+
+async def reject_pipeline(run_id: str) -> dict:
+    saved = await get_pipeline_state(run_id)
+    if saved.get("error"):
+        return saved
+    return reject_run(run_id)

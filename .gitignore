@@ -87,7 +87,9 @@ db.sqlite3-journal
 # SQLite databases (all environments)
 *.db
 
-# ChromaDB vector store (generated, supply chain RAG)
+# ChromaDB generated vector stores
+
+knowledge/chroma_store/
 knowledge/supply_chain/rag/chroma_store/
 
 # Flask stuff:
@@ -319,3 +321,7 @@ backend/.env
 
 # Local duplicate copy of the repo — never commit
 uniSlot/
+
+# MCP server config — contains API keys, never commit
+.mcp.json
+

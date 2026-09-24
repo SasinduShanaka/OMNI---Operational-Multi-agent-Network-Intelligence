@@ -28,7 +28,7 @@ def build_po_email_data(po_id: int, approved_by: str = "Human Manager") -> tuple
     try:
         row = conn.execute(
             """
-            SELECT po.po_id, po.qty, po.total_value, po.order_date,
+            SELECT po.po_id, po.qty, po.total_value, po.order_date, po.status,
                    po.expected_delivery_date, po.approved_by, po.po_details,
                    s.name AS supplier_name, s.country, s.email, s.price_per_unit
             FROM purchase_orders po
@@ -44,6 +44,8 @@ def build_po_email_data(po_id: int, approved_by: str = "Human Manager") -> tuple
         return None, f"PO #{po_id} not found."
 
     row_dict = dict(row)
+    if row_dict["status"] != "approved":
+        return None, f"PO #{po_id} has not been approved."
     po_details = {}
     if row_dict.get("po_details"):
         try:
@@ -60,11 +62,12 @@ def build_po_email_data(po_id: int, approved_by: str = "Human Manager") -> tuple
         "qty": row_dict["qty"],
         "unit": po_details.get("unit", "units"),
         "total_value": row_dict["total_value"],
-        "price_per_unit": row_dict["price_per_unit"] or 260.0,
+        "price_per_unit": row_dict["total_value"] / row_dict["qty"] if row_dict["qty"] else 0,
         "order_date": row_dict["order_date"] or "",
         "expected_delivery_date": row_dict["expected_delivery_date"] or "",
         "approved_by": row_dict["approved_by"] or approved_by,
         "material_name": po_details.get("material_name", "Material"),
+        "color_base": po_details.get("color_base", "-"),
         "color_spec": po_details.get("color_spec", "-"),
         "dimensions": po_details.get("dimensions", {}),
         "compliance_keywords": po_details.get("compliance_keywords", []),

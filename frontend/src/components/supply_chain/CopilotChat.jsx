@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import OmniMark from '../OmniMark'
 import { supplyChainApi } from '../../api/supplyChainApi'
 
 // ── Star rating helper ─────────────────────────────────────────────
@@ -59,7 +60,7 @@ function generateShades(baseName) {
   const hues = {
     red: 0, orange: 30, yellow: 60, green: 120, teal: 180,
     blue: 215, navy: 230, purple: 270, pink: 330, brown: 25,
-    olive: 80, mint: 150
+    olive: 80, mint: 150, beige: 35, khaki: 45, maroon: 345
   };
   
   const b = baseName.toLowerCase();
@@ -209,8 +210,8 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
   const [typingText, setTypingText] = useState('')
   const [history, setHistory] = useState([])       // sent to /gather each turn
   const [requirements, setRequirements] = useState(null)
-  const [selectedSupplier, setSelectedSupplier] = useState(null)
   const messagesEndRef = useRef(null)
+  const sendMessageRef = useRef(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -222,10 +223,10 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
 
   useEffect(() => {
     if (prefillQuery && isOpen && !isTyping) {
-      sendMessage(prefillQuery)
+      sendMessageRef.current?.(prefillQuery)
       if (clearQuery) clearQuery()
     }
-  }, [prefillQuery, isOpen])
+  }, [prefillQuery, isOpen, isTyping, clearQuery])
 
   const pushOmni = (type, content, data = null) =>
     setMessages(prev => [...prev, { role: 'omni', type, content, ...(data ? { data } : {}) }])
@@ -291,11 +292,11 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       pushOmni('error', `Error: ${err.message}`)
     }
   }
+  sendMessageRef.current = sendMessage
 
   // ── User selects a supplier ─────────────────────────────────────
   const handleSelectSupplier = async (supplier) => {
     if (phase !== 'selecting' || isTyping) return
-    setSelectedSupplier(supplier)
 
     // Freeze the supplier list visually
     setMessages(prev => prev.map(m =>
@@ -394,7 +395,6 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
     setPhase('gathering')
     setHistory([])
     setRequirements(null)
-    setSelectedSupplier(null)
     setMessages([{
       role: 'omni', type: 'text',
       content: 'Hi! I\'m your procurement assistant. What materials do you need? For example: "I need cotton fabric" or "500 navy blue zippers".'
@@ -404,7 +404,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
   const handleSend = (e) => { e.preventDefault(); sendMessage(input) }
 
   // ── Render a single message ─────────────────────────────────────
-  const renderMsg = (msg, idx) => {
+  const _renderMsg = (msg, idx) => {
     if (msg.type === 'text') {
       const html = (msg.content || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>')
       return <p className="text-sm text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
@@ -549,7 +549,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 bg-[#0f172a] text-white flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex items-center justify-center text-sm font-bold shadow">O</div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow"><OmniMark size={22} /></div>
           <div>
             <div className="font-bold text-sm">Omni Copilot</div>
             <div className="text-xs text-white/60">Procurement Assistant</div>
@@ -585,7 +585,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
             {msg.role === 'omni' && (
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#eff6ff] ring-1 ring-[#bfdbfe]"><OmniMark size={16} /></div>
             )}
             <div className={`max-w-[85%] ${msg.role === 'user' ? 'bg-[#0f172a] text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm' : ''}`}>
               {msg.role !== 'user' && <p className="text-sm text-gray-700 leading-relaxed">{msg.content}</p>}
@@ -598,7 +598,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
                     <div className="flex justify-between"><span className="text-gray-500">Supplier</span><span className="font-semibold text-gray-800">{msg.data.supplier?.supplier_name}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">PO #</span><span className="font-mono font-semibold text-gray-800">#{msg.data.po?.po_id}</span></div>
                     <div className="flex justify-between"><span className="text-gray-500">Value</span><span className="font-semibold text-gray-800">LKR {msg.data.po?.total_value?.toLocaleString()}</span></div>
-                    <div className="mt-2 p-2 bg-green-50 rounded-lg text-xs text-green-700 border border-green-100">✓ Compliance verified</div>
+                    <div className="mt-2 p-2 bg-blue-50 rounded-lg text-xs text-blue-700 border border-blue-100">Review supplier terms before authorizing.</div>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleApprove(msg.data.run_id, msg.data.po?.po_id)} disabled={isTyping} className="flex-1 bg-gradient-to-r from-[#3b82f6] to-[#2563eb] text-white text-xs font-bold py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">Authorize</button>
@@ -631,7 +631,7 @@ export default function CopilotChat({ isOpen, onClose, onPipelineComplete, prefi
 
         {isTyping && (
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#1e40af] flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">O</div>
+            <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#eff6ff] ring-1 ring-[#bfdbfe]"><OmniMark size={16} /></div>
             <div className="flex items-center gap-2 text-xs text-gray-400 bg-white rounded-xl px-4 py-2.5 shadow-sm border border-gray-100">
               <svg className="animate-spin w-3 h-3 text-amber-500" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

@@ -1,10 +1,18 @@
-const API_BASE_URL = 'http://127.0.0.1:8000/supply-chain'
+import { apiFetch, API_BASE_URL as SERVER_URL } from './http'
+
+const API_BASE_URL = `${SERVER_URL}/supply-chain`
 
 export const supplyChainApi = {
+  getPipelineStatus: async (runId) => {
+    const response = await apiFetch(`${API_BASE_URL}/status/${encodeURIComponent(runId)}`)
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.detail || 'Could not refresh the purchase order.')
+    return result
+  },
   // Start the pipeline: Sourcing + PO Draft (Legacy / Manual)
   startPipeline: async (data) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/run`, {
+      const response = await apiFetch(`${API_BASE_URL}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -23,7 +31,7 @@ export const supplyChainApi = {
   // Start pipeline via Natural Language (Agentic) - legacy single-shot
   chatPipeline: async (data) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await apiFetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -42,7 +50,7 @@ export const supplyChainApi = {
   // Multi-turn requirements gathering
   gatherRequirements: async (conversationHistory) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/gather`, {
+      const response = await apiFetch(`${API_BASE_URL}/gather`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversation_history: conversationHistory }),
@@ -61,7 +69,7 @@ export const supplyChainApi = {
   // Find matching suppliers from real DB
   findSuppliers: async (requirements) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/find-suppliers`, {
+      const response = await apiFetch(`${API_BASE_URL}/find-suppliers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requirements),
@@ -81,7 +89,7 @@ export const supplyChainApi = {
   // Approve a pending PO
   approvePo: async (runId, approvedBy) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/approve/${runId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/approve/${runId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved_by: approvedBy }),
@@ -100,7 +108,7 @@ export const supplyChainApi = {
   // Reject a pending PO
   rejectPo: async (runId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/reject/${runId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/reject/${runId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -115,28 +123,13 @@ export const supplyChainApi = {
     }
   },
 
-  // Track an active shipment (calls the AI tracking agent)
-  trackShipment: async (shipmentId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/track/${shipmentId}`)
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to track shipment')
-      }
-      return await response.json()
-    } catch (error) {
-      console.error('Error tracking shipment:', error)
-      throw error
-    }
-  },
-
   // ----------------------------------------------------------------
   // Data listing endpoints (direct database reads)
   // ----------------------------------------------------------------
 
   // Get all suppliers from mock-erp.db
   getSuppliers: async () => {
-    const response = await fetch(`${API_BASE_URL}/suppliers`)
+    const response = await apiFetch(`${API_BASE_URL}/suppliers`)
     if (!response.ok) throw new Error('Failed to fetch suppliers')
     return response.json()
   },
@@ -144,7 +137,7 @@ export const supplyChainApi = {
   // Update a supplier's intelligence details
   updateSupplier: async (supplierId, data) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/suppliers/${supplierId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/suppliers/${supplierId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -161,7 +154,7 @@ export const supplyChainApi = {
   },
 
   deleteSupplier: async (supplierId) => {
-    const response = await fetch(`${API_BASE_URL}/suppliers/${supplierId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/suppliers/${supplierId}`, {
       method: 'DELETE',
     })
     if (!response.ok) throw new Error('Failed to delete supplier')
@@ -170,28 +163,28 @@ export const supplyChainApi = {
 
   // Get all purchase orders with supplier + production plan details
   getPurchaseOrders: async () => {
-    const response = await fetch(`${API_BASE_URL}/purchase-orders`)
+    const response = await apiFetch(`${API_BASE_URL}/purchase-orders`)
     if (!response.ok) throw new Error('Failed to fetch purchase orders')
     return response.json()
   },
 
   // Get all shipments with carrier details from mock-tms.db
   getShipments: async () => {
-    const response = await fetch(`${API_BASE_URL}/shipments`)
+    const response = await apiFetch(`${API_BASE_URL}/shipments`)
     if (!response.ok) throw new Error('Failed to fetch shipments')
     return response.json()
   },
 
   // Track a shipment dynamically using LangChain
   trackShipment: async (shipmentId) => {
-    const response = await fetch(`${API_BASE_URL}/shipments/${shipmentId}/track`)
+    const response = await apiFetch(`${API_BASE_URL}/shipments/${shipmentId}/track`)
     if (!response.ok) throw new Error('Failed to track shipment')
     return response.json()
   },
 
   // Manual DB approve (for seeded POs)
   manualApprovePo: async (poId) => {
-    const response = await fetch(`${API_BASE_URL}/purchase-orders/${poId}/approve`, {
+    const response = await apiFetch(`${API_BASE_URL}/purchase-orders/${poId}/approve`, {
       method: 'PUT',
     })
     if (!response.ok) throw new Error('Failed to approve PO')
@@ -200,7 +193,7 @@ export const supplyChainApi = {
 
   // Manual DB reject (for seeded POs)
   manualRejectPo: async (poId) => {
-    const response = await fetch(`${API_BASE_URL}/purchase-orders/${poId}/reject`, {
+    const response = await apiFetch(`${API_BASE_URL}/purchase-orders/${poId}/reject`, {
       method: 'PUT',
     })
     if (!response.ok) throw new Error('Failed to reject PO')
@@ -208,7 +201,7 @@ export const supplyChainApi = {
   },
 
   deletePurchaseOrder: async (poId) => {
-    const response = await fetch(`${API_BASE_URL}/purchase-orders/${poId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/purchase-orders/${poId}`, {
       method: 'DELETE',
     })
     if (!response.ok) throw new Error('Failed to delete PO')
@@ -216,7 +209,7 @@ export const supplyChainApi = {
   },
 
   updateShipmentStatus: async (shipmentId, status) => {
-    const response = await fetch(`${API_BASE_URL}/shipments/${shipmentId}/status`, {
+    const response = await apiFetch(`${API_BASE_URL}/shipments/${shipmentId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
@@ -226,7 +219,7 @@ export const supplyChainApi = {
   },
 
   deleteShipment: async (shipmentId) => {
-    const response = await fetch(`${API_BASE_URL}/shipments/${shipmentId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/shipments/${shipmentId}`, {
       method: 'DELETE',
     })
     if (!response.ok) throw new Error('Failed to delete shipment')
@@ -235,7 +228,7 @@ export const supplyChainApi = {
 
   // Re-send PO email to supplier (for approved POs in PurchaseOrdersTab)
   resendPoEmail: async (poId, notes = '') => {
-    const response = await fetch(`${API_BASE_URL}/resend-po-email/${poId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/resend-po-email/${poId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes }),

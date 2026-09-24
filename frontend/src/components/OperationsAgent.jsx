@@ -1,10 +1,15 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { supplyChainApi } from '../api/supplyChainApi'
 import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
 import ManagementReport from './ManagementReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
+import { ScenePage } from './FactoryScene'
+import { OmniAvatar } from './OmniMark'
+import PlanningEvidence, { MaterialEvidence } from './PlanningEvidence'
+import { apiFetch } from '../api/http'
+import { focusChatComposer } from './chatFocus'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 function compactWorkflow(workflow) {
   const internalSupplyChainSteps = new Set([
@@ -32,8 +37,44 @@ function compactWorkflow(workflow) {
 }
 
 function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery }) {
-  const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
+  const [sessionId, setSessionId] = useState(() => chatState.sessionId || crypto.randomUUID())
+  const [requestId, setRequestId] = useState(null)
+  const [progress, setProgress] = useState(null)
+  const messagesEndRef = useRef(null)
+  const composerRef = useRef(null)
   const { draft, messages, isAsking, error } = chatState
+
+  useEffect(() => {
+    focusChatComposer(composerRef.current, isAsking)
+  }, [isAsking])
+
+  useEffect(() => {
+    if (!isAsking || !requestId) return undefined
+    const controller = new AbortController()
+    let timer
+    async function poll() {
+      try {
+        const response = await apiFetch(`${API_BASE_URL}/ask/progress/${requestId}`, { signal: controller.signal })
+        if (response.ok) {
+          const update = await response.json()
+          if (!controller.signal.aborted && update.agent) setProgress(update)
+        }
+      } catch {
+        // The chat request can finish even if a progress update is unavailable.
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(poll, 700)
+      }
+    }
+    poll()
+    return () => { controller.abort(); window.clearTimeout(timer) }
+  }, [isAsking, requestId])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    })
+  }, [messages, isAsking, progress?.agent, error])
 
   function updateChatState(patch) {
     setChatState((previous) => ({
@@ -48,7 +89,12 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       return
     }
 
+    const currentRequestId = crypto.randomUUID()
+    setRequestId(currentRequestId)
+    setProgress(null)
+
     updateChatState({
+      sessionId,
       messages: [
         ...messages,
         {
@@ -91,7 +137,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         })
         return
       }
-      const response = await fetch(`${API_BASE_URL}${managementReport ? '/reports/generate' : '/ask'}`, {
+      const response = await apiFetch(`${API_BASE_URL}${managementReport ? '/reports/generate' : '/ask'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,6 +145,7 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         body: JSON.stringify(managementReport ? managementReportScope(userMessage) : {
           message: isReportRequest(userMessage) ? reportQuery(userMessage) || userMessage : userMessage,
           session_id: sessionId,
+          request_id: currentRequestId,
           payload: payload,
         }),
       })
@@ -114,12 +161,16 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       if (data.session_id && data.session_id !== sessionId) {
         setSessionId(data.session_id)
       }
+      if (data.intent === 'approval_followup') {
+        window.dispatchEvent(new Event('omni:purchase-order-updated'))
+      }
 
       if (isReportRequest(userMessage) && data.intent !== 'unknown') {
         data.reportRequested = true
       }
 
       updateChatState({
+        sessionId: data.session_id || sessionId,
         messages: [
           ...messages,
           {
@@ -144,73 +195,154 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
     }
   }
 
+  // Keep the newest message in view without yanking the page when the
+  // user has scrolled back to read something.
+  const scrollRef = useRef(null)
+  const endRef = useRef(null)
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 220
+    if (nearBottom || isAsking) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [messages.length, isAsking])
+
   function handleKeyDown(event) {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       handleSend()
     }
   }
 
-  const suggestedQuestions = [
-    'Show me the full fabric stock list',
-    'Find suppliers for low stock materials',
-    'Order low stock materials',
-    'Can we produce 1,250 black polos next month?',
+  const promptGroups = [
+    {
+      label: 'Stock',
+      icon: '◇',
+      prompts: [
+        'Show me the full fabric stock list',
+        'Which materials are below safety stock?',
+      ],
+    },
+    {
+      label: 'Demand',
+      icon: '⌁',
+      prompts: [
+        'Forecast demand for GAR-003 next month',
+        'What is the demand outlook for GAR-001?',
+      ],
+    },
+    {
+      label: 'Production',
+      icon: '⚙',
+      prompts: [
+        'Can we make 6000 grey hoodies by 20 December 2026?',
+        'Which lines are at capacity?',
+      ],
+    },
+    {
+      label: 'Sourcing',
+      icon: '▱',
+      prompts: [
+        'I need 400 meters of organic cotton',
+        'Which suppliers have the fastest lead times?',
+      ],
+    },
   ]
 
   return (
-    <section className="w-full h-full flex flex-col p-8">
+    <ScenePage
+      scene="overview"
+      bannerMaxHeight="7.5rem"
+      contentPull="-mt-3"
+      banner={
+        <div className="mx-auto flex w-full max-w-[1280px] flex-wrap items-end justify-between gap-3 px-5 pb-3">
 
-      {/* Header */}
-      <div className="mb-5 flex-shrink-0">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#e2e8f0] mb-3">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-          Factory assistant
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/60 bg-white/85 px-3 py-2 backdrop-blur-xl">
+
+            <OmniAvatar size={32} />
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[17px] font-semibold tracking-tight text-slate-900">Ask Omni</h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  Online
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-[#64748b]">
+                One question reaches every agent — stock, demand, production and sourcing.
+              </p>
+            </div>
+
+          </div>
+
+          {messages.length > 0 && (
+            <button
+              onClick={() => {
+                updateChatState({ messages: [], error: '', draft: '' })
+                focusChatComposer(composerRef.current, false)
+              }}
+              className="rounded-lg border border-white/70 bg-white/90 px-3 py-2 text-[11px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
+            >
+              New conversation
+            </button>
+          )}
+
         </div>
-        <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-          Ask Omni
-        </h2>
+      }
+    >
 
-        <p className="text-sm text-[#64748b] mt-2">
-          Factory operations assistant for stock, sourcing, and production planning
-        </p>
-      </div>
+    <section className="mx-auto flex h-[calc(100dvh-4rem-6.5rem)] min-h-[440px] w-full max-w-[1280px] flex-col px-5 pb-4">
 
+      {/* ==================================================== */}
+      {/* CHAT SURFACE                                         */}
+      {/* ==================================================== */}
 
-      {/* Chat container */}
-      <div className="flex-1 min-h-0 bg-white border border-slate-200 rounded-2xl shadow-[0_12px_30px_rgba(15,23,42,0.06)] overflow-hidden flex flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-20px_rgba(15,23,42,0.35)]">
 
         {/* Conversation */}
-        <div className="flex-1 min-h-0 p-6 overflow-y-auto">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
 
           {messages.length === 0 && (
-            <div className="flex items-center justify-center min-h-[400px]">
+            <div className="mx-auto flex h-full max-w-[900px] flex-col justify-center py-6">
 
-              <div className="text-center max-w-md">
-
-                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#eff6ff] border border-[#bfdbfe] flex items-center justify-center shadow-sm">
-                  <span className="text-xl text-[#0369a1]">
-                    ✦
-                  </span>
-                </div>
-
-                <h3 className="text-lg font-semibold text-slate-800">
-                  How can I help today?
-                </h3>
-
-                <p className="text-sm text-slate-500 mt-2 leading-6">
-                  Ask about demand forecasts, raw material availability,
-                  production shortages, line constraints,
-                  or replenishment timing.
+              <div className="text-center">
+                <OmniAvatar size={48} className="mx-auto mb-3" />
+                <h3 className="text-[15px] font-semibold text-slate-900">How can I help today?</h3>
+                <p className="mx-auto mt-1.5 max-w-sm text-[12px] leading-6 text-slate-500">
+                  Ask in plain language. I route the question to the right agent and show you
+                  the evidence behind the answer.
                 </p>
+              </div>
 
+              <div className="mt-6 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                {promptGroups.map((group) => (
+                  <div key={group.label} className="rounded-lg border border-slate-200/80 bg-slate-50/60 p-3">
+                    <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                      <span className="text-[11px] text-[#1d4ed8]">{group.icon}</span>
+                      {group.label}
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {group.prompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          onClick={() => handleSend(prompt)}
+                          className="block w-full rounded-md bg-white px-2.5 py-1.5 text-left text-[12px] text-slate-600 ring-1 ring-slate-200/80 transition hover:text-[#1d4ed8] hover:ring-[#93c5fd]"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
 
             </div>
           )}
 
-
-          <div className="space-y-6">
+          <div className="space-y-5">
 
             {messages.map((item, index) => (
 
@@ -221,11 +353,13 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
                 )}
 
                 {item.type === 'agent' && (
-                  <AgentResponse 
-                    data={item.data} 
-                    setActivePage={setActivePage} 
+                  <AgentResponse
+                    data={item.data}
+                    setActivePage={setActivePage}
                     setScQuery={setScQuery}
                     handleSend={handleSend}
+                    isLatest={index === messages.length - 1 && !isAsking}
+                    isAsking={isAsking}
                   />
                 )}
 
@@ -233,86 +367,60 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
             ))}
 
+            {isAsking && <ThinkingBubble progress={progress} />}
 
-            {isAsking && (
-              <div>
-
-                <p className="text-xs font-medium text-slate-500 mb-2">
-                  Ask Omni
-                </p>
-
-                <div className="inline-flex items-center gap-2 bg-[#f1f5f9] text-[#475569] rounded-xl px-4 py-3 text-sm border border-[#cbd5e1]">
-
-                  <span className="w-2 h-2 rounded-full bg-[#3b82f6] animate-pulse"></span>
-
-                  Checking factory data and supplier status...
-
-                </div>
-
-              </div>
-            )}
+            <div ref={endRef} />
 
           </div>
 
-
           {error && (
-            <div className="mt-5 p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
-              {error}
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">
+              <span className="mt-[2px] text-[13px]">⚠</span>
+              <span>{error}</span>
             </div>
           )}
+
+          <div ref={messagesEndRef} />
 
         </div>
 
 
-        {/* Suggested questions */}
-        {messages.length === 0 && (
-          <div className="px-6 pb-5 flex-shrink-0 border-t border-slate-100 pt-4">
+        {/* Composer */}
+        <div className="flex-shrink-0 border-t border-slate-100 bg-white p-3">
 
-            <p className="text-xs text-slate-400 mb-2">
-              Try asking
-            </p>
+          <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 transition focus-within:border-[#2563eb] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#3b82f6]/15">
 
-            <div className="flex flex-wrap gap-2">
-
-              {suggestedQuestions.map((question) => (
-                <button
-                  key={question}
-                  onClick={() => updateChatState({ draft: question })}
-                  className="px-3 py-2 rounded-lg border border-[#cbd5e1] bg-[#ffffff] text-xs text-[#475569] hover:border-[#3b82f6] hover:bg-[#dbeafe] transition"
-                >
-                  {question}
-                </button>
-              ))}
-
-            </div>
-
-          </div>
-        )}
-
-
-        {/* Input */}
-        <div className="border-t border-slate-100 p-4 flex-shrink-0">
-
-          <div className="flex gap-3">
-
-            <input
-              type="text"
+            <textarea
+              ref={composerRef}
+              rows={1}
               value={draft}
               onChange={(event) => updateChatState({ draft: event.target.value })}
               onKeyDown={handleKeyDown}
               disabled={isAsking}
-              placeholder="Ask about demand, fabric, shortages, or production planning..."
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#3b82f6]/20 transition"
+              placeholder="Ask about demand, fabric, shortages, sourcing or production planning…"
+              className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-6 text-slate-800 placeholder-slate-400 outline-none disabled:opacity-60"
             />
 
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={isAsking || !draft.trim()}
-              className="px-5 py-3 rounded-xl bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Send message"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#1d4ed8] text-white transition hover:bg-[#1e40af] disabled:opacity-40"
             >
-              {isAsking ? '...' : 'Send'}
+              {isAsking
+                ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                : <span className="text-[13px] leading-none">↑</span>}
             </button>
 
+          </div>
+
+          <div className="mt-1.5 flex items-center justify-between px-1">
+            <p className="text-[10px] text-slate-400">
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Enter</kbd> to send ·
+              <kbd className="ml-1 rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Shift</kbd> +
+              <kbd className="rounded border border-slate-200 bg-white px-1 py-px text-[9px]">Enter</kbd> for a new line
+            </p>
+            <p className="text-[10px] text-slate-400">{messages.filter((item) => item.type === 'user').length} asked</p>
           </div>
 
         </div>
@@ -320,7 +428,52 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
       </div>
 
     </section>
+
+    </ScenePage>
   )
+}
+
+
+/* ============================================================
+   THINKING INDICATOR
+============================================================ */
+
+function ThinkingBubble({ progress }) {
+  const agent = progress?.agent || 'Operations Agent'
+  const detail = progress?.detail || 'Checking factory data and supplier status'
+
+  return (
+    <div className="flex gap-2.5">
+
+      <AgentAvatar />
+
+      <div>
+        <p className="mb-1 text-[11px] font-medium text-slate-500">Ask Omni</p>
+        <div
+          role="status"
+          aria-live="polite"
+          className="inline-flex items-center gap-2 rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-3.5 py-2.5"
+        >
+          <span className="flex gap-1">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.3s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6] [animation-delay:-0.15s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#3b82f6]" />
+          </span>
+          <span className="text-[12px] text-slate-500">
+            <span className="font-semibold text-slate-700">{agent}</span>
+            <span aria-hidden="true"> · </span>
+            {detail}...
+          </span>
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+
+function AgentAvatar() {
+  return <OmniAvatar size={28} className="mt-5 !rounded-lg" />
 }
 
 
@@ -330,18 +483,17 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
 
 function UserMessage({ text }) {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end gap-2.5">
 
-      <div className="max-w-[78%]">
-
-        <p className="text-xs text-slate-400 text-right mb-1">
-          You
-        </p>
-
-        <div className="bg-[#1d4ed8] text-white rounded-2xl rounded-tr-md px-4 py-3 text-sm leading-6 shadow-sm">
+      <div className="max-w-[min(76%,620px)]">
+        <p className="mb-1 text-right text-[11px] text-slate-400">You</p>
+        <div className="rounded-xl rounded-tr-sm bg-[#1d4ed8] px-3.5 py-2.5 text-[13px] leading-6 text-white shadow-[0_8px_20px_-12px_rgba(29,78,216,0.9)]">
           {text}
         </div>
+      </div>
 
+      <div className="mt-5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-200 text-[11px] font-semibold text-slate-600">
+        You
       </div>
 
     </div>
@@ -350,10 +502,122 @@ function UserMessage({ text }) {
 
 
 /* ============================================================
+   ANSWER TEXT — turns one long paragraph into something
+   scannable: bullets become a list, "Label: value" pairs become
+   rows, and everything else stays a short paragraph.
+============================================================ */
+
+function AnswerText({ text }) {
+
+  if (!text) return null
+
+  const blocks = String(text)
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+
+  return (
+    <div className="space-y-2.5">
+      {blocks.map((block, index) => {
+
+        const lines = block.split('\n').map((line) => line.trim()).filter(Boolean)
+        const bulletLines = lines.filter((line) => /^([-•*]|\d+[.)])\s+/.test(line))
+
+        // a block is a list when most of its lines are bulleted
+        if (bulletLines.length >= 2 && bulletLines.length >= lines.length - 1) {
+          return (
+            <ul key={index} className="space-y-1.5">
+              {lines.map((line, lineIndex) => {
+                const clean = line.replace(/^([-•*]|\d+[.)])\s+/, '')
+                return (
+                  <li key={lineIndex} className="flex gap-2 text-[13px] leading-6 text-slate-700">
+                    <span className="mt-[9px] h-1 w-1 flex-shrink-0 rounded-full bg-[#3b82f6]" />
+                    <span><InlineEmphasis text={clean} /></span>
+                  </li>
+                )
+              })}
+            </ul>
+          )
+        }
+
+        return (
+          <p key={index} className="text-[13px] leading-6 text-slate-700">
+            <InlineEmphasis text={block.replace(/\n/g, ' ')} />
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+
+// Numbers and quantities carry the weight in an operations answer,
+// so they are the one thing set apart from the running text.
+function InlineEmphasis({ text }) {
+
+  const parts = String(text).split(/(\*\*[^*]+\*\*|\b\d[\d,.]*\s?(?:units|m|kg|pieces|meters|days|%)\b|\b[A-Z]{2,4}-\d{3,4}\b)/g)
+
+  return (
+    <>
+      {parts.map((part, index) => {
+
+        if (/^\*\*[^*]+\*\*$/.test(part)) {
+          return <strong key={index} className="font-semibold text-slate-900">{part.slice(2, -2)}</strong>
+        }
+
+        if (/^\b[A-Z]{2,4}-\d{3,4}\b$/.test(part)) {
+          return (
+            <code key={index} className="rounded border border-slate-200 bg-slate-50 px-1 py-px font-mono text-[11px] text-slate-700">
+              {part}
+            </code>
+          )
+        }
+
+        if (/\d/.test(part) && /(units|m|kg|pieces|meters|days|%)\s*$/.test(part)) {
+          return <span key={index} className="font-semibold tabular-nums text-slate-900">{part}</span>
+        }
+
+        return <React.Fragment key={index}>{part}</React.Fragment>
+      })}
+    </>
+  )
+}
+
+
+/* ============================================================
+   COPY BUTTON
+============================================================ */
+
+function CopyButton({ value }) {
+
+  const [copied, setCopied] = useState(false)
+
+  if (!value) return null
+
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1600)
+        } catch {
+          setCopied(false)
+        }
+      }}
+      className="rounded-md px-1.5 py-0.5 text-[10px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+
+/* ============================================================
    AGENT RESPONSE
 ============================================================ */
 
-function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
+function AgentResponse({ data, setActivePage, handleSend, isLatest, isAsking }) {
   if (!data) {
     return null
   }
@@ -364,12 +628,24 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
     && isForecastUnavailable(data.result)
     && data.answer?.trim() === data.result.message?.trim()
 
-  return (
-    <div className="max-w-[92%]">
+  const followUps = followUpsFor(data)
 
-      <p className="text-xs font-medium text-slate-500 mb-2">
-        Ops chat agent
-      </p>
+  return (
+    <div className="flex gap-2.5">
+
+      <AgentAvatar />
+
+      <div className="min-w-0 flex-1">
+
+      <div className="mb-1 flex items-center gap-2">
+        <p className="text-[11px] font-medium text-slate-500">Ask Omni</p>
+        {data.intent && (
+          <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-medium uppercase tracking-[0.1em] text-slate-500">
+            {String(data.intent).replace(/_/g, ' ')}
+          </span>
+        )}
+        {data.answer && <CopyButton value={data.answer} />}
+      </div>
 
 
       {/* ======================================================
@@ -386,16 +662,13 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
               <React.Fragment key={`${agent}-${index}`}>
 
-                <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-medium text-slate-600">
-
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700">✓</span>
                   {index === 0 ? 'Operations Agent' : agent}
-
                 </span>
 
                 {index < workflow.length - 1 && (
-                  <span className="text-slate-300">
-                    →
-                  </span>
+                  <span className="text-[10px] text-slate-300">→</span>
                 )}
 
               </React.Fragment>
@@ -415,13 +688,42 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
 
       {data.answer && !answerShownInForecastCard && !data.sections && (
 
-        <div className="bg-slate-100 text-slate-800 rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-7">
+        <div className="rounded-xl rounded-tl-sm border border-slate-200 bg-slate-50 px-4 py-3">
 
-          {data.answer}
+          <AnswerText text={data.answer} />
 
         </div>
 
       )}
+
+      {data.intent === 'demand_forecast' && data.suggested_products?.length > 0 && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-3 text-sm font-semibold text-slate-700">{data.forecast_mode === 'comparison' ? 'Choose products to compare' : 'Choose a product to forecast'}</p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" disabled={isAsking}
+              onClick={() => handleSend(data.forecast_mode === 'comparison' ? 'Compare predicted demand with actual demand last month for all products' : `Forecast demand for all products for the next ${data.forecast_periods || 1} months`)}
+              className="rounded-xl border border-blue-700 bg-blue-700 px-4 py-3 text-left text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+              <span className="block text-sm font-semibold">All products</span>
+              <span className="mt-1 block text-xs text-blue-100">Entire product catalog</span>
+            </button>
+            {data.suggested_products.map((product) => (
+              <button key={product.sku} type="button" disabled={isAsking}
+                onClick={() => handleSend(data.forecast_mode === 'comparison' ? `Compare predicted demand with actual demand last month for ${product.product_name} (${product.sku})` : `Forecast demand for ${product.product_name} (${product.sku}) for the next ${data.forecast_periods || 1} months`)}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition hover:border-blue-500 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
+                <span className="block text-sm font-semibold text-blue-900">{product.product_name}</span>
+                <span className="mt-1 block text-xs text-blue-600">{product.sku}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data.comparisons && <div className="mt-4 space-y-3">{data.comparisons.map((row) => <div key={row.sku} className="rounded-xl border border-slate-200 p-4 text-sm">
+        {row.prediction_source && <p className="mb-2 text-xs font-semibold text-blue-700">{row.prediction_source}</p>}
+        <p className="font-semibold">{row.product_name || row.sku} · {row.period.slice(0, 7)}</p>
+        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{[['Actual units', row.actual], ['Predicted units', row.predicted], ['Error (predicted − actual)', row.error], ['Absolute error (%)', row.percentage_error]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold">{value == null ? 'N/A' : Number(value).toLocaleString()}</dd></div>)}</dl>
+        <p className="mt-3 text-xs text-slate-500">{row.note}</p>
+      </div>)}</div>}
 
       {data.intent === 'report_navigation' && (
         <button type="button" onClick={() => setActivePage('reports')} className="mt-3 rounded-lg bg-[#1f3a36] px-4 py-2 text-sm font-semibold text-white">Open Factory reports</button>
@@ -466,6 +768,19 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
           PROCUREMENT
       ====================================================== */}
 
+      {['operational_plan', 'production_feasibility'].includes(data.intent) && data.result && (
+        <PlanningEvidence result={data.result} setActivePage={setActivePage} />
+      )}
+
+      {data.intent === 'product_materials' && data.result && <MaterialEvidence result={data.result} />}
+
+      {data.intent === 'approval_followup' && data.results?.map((item) => (
+        <OmniProcurementCard key={item.run_id} data={item.approval || item} />
+      ))}
+      {data.intent === 'approval_followup' && data.errors?.map((item, index) => (
+        <p role="alert" key={index} className="mt-3 text-sm text-red-700">PO #{item.po_id}: {item.error}</p>
+      ))}
+
       {data.intent === 'procurement' && data.data && (
         <OmniProcurementCard data={data.data} />
       )}
@@ -488,6 +803,27 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
                 key={`${item.material?.material_code || 'material'}-${index}`}
                 item={item}
               />
+            )
+          ))}
+        </div>
+      )}
+
+      {data.intent === 'operational_plan' && data.result?.procurement?.length > 0 && (
+        <div className="mt-4 space-y-4">
+          {data.result.procurement.map((item, index) => (
+            item.run ? (
+              <OmniProcurementCard
+                key={item.run.run_id || index}
+                data={item.run}
+                material={item}
+              />
+            ) : (
+              <div
+                key={`${item.material_code || 'procurement'}-${index}`}
+                className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {item.material_name || item.material_code || 'Material'} needs manual review: {item.error || 'purchase order was not drafted.'}
+              </div>
             )
           ))}
         </div>
@@ -671,14 +1007,67 @@ function AgentResponse({ data, setActivePage, setScQuery, handleSend }) {
               ? 'text-emerald-600'
               : 'text-amber-600'
           }>
-            {formatStatus(data.status)}
+            {data.intent === 'operational_plan' && data.status === 'success' ? 'Assessment complete' : formatStatus(data.status)}
           </span>
         )}
 
       </div>
 
+      {isLatest && followUps.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Next</span>
+          {followUps.map((prompt) => (
+            <button
+              key={prompt}
+              onClick={() => handleSend(prompt)}
+              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-[#93c5fd] hover:text-[#1d4ed8]"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      )}
+
+      </div>
+
     </div>
   )
+}
+
+
+/* ============================================================
+   FOLLOW-UPS — what a planner usually asks next, chosen from
+   the intent that just came back rather than a fixed list.
+============================================================ */
+
+function followUpsFor(data) {
+
+  const sku = data?.result?.sku || data?.result?.[0]?.sku
+
+  switch (data?.intent) {
+
+    case 'demand_forecast':
+      return [
+        sku ? `Can we produce the forecast quantity of ${sku}?` : 'Can we produce that quantity?',
+        'Do we have the materials in stock?',
+        'Download this as a report',
+      ]
+
+    case 'inventory_check':
+    case 'low_stock':
+    case 'inventory_list':
+      return ['Which of these need reordering?', 'Find suppliers for the short items', 'Download inventory report']
+
+    case 'production_feasibility':
+    case 'operational_plan':
+      return ['What is blocking it?', 'Suggest a reallocation', 'Show the supplier options']
+
+    case 'procurement':
+      return ['Compare supplier lead times', 'Show me the purchase orders']
+
+    default:
+      return ['Show me the fabric stock list', 'Which lines are at capacity?']
+  }
 }
 
 
@@ -737,6 +1126,7 @@ function ForecastCard({ result }) {
         </div>
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">{result.trend}</span>
       </div>
+      <ForecastMonths result={result} />
       <div className="mt-4 grid grid-cols-2 gap-4">
         <div><p className="text-xs text-slate-500">Next-month forecast</p><p className="mt-1 text-lg font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p></div>
         <div><p className="text-xs text-slate-500">History analyzed</p><p className="mt-1 text-lg font-semibold text-slate-900">{result.history_points} periods</p></div>
@@ -746,15 +1136,28 @@ function ForecastCard({ result }) {
 }
 
 
+function ForecastMonths({ result }) {
+  if (!result.predictions || result.predictions.length < 2) return null
+  return <div className="mt-4 w-full overflow-hidden rounded-lg border border-slate-200">
+    <p className="bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900">{result.predictions.length}-month demand outlook</p>
+    <table className="w-full text-left text-sm">
+      <thead><tr className="text-slate-500"><th className="px-3 py-2">Month</th><th className="px-3 py-2 text-right">Predicted units</th></tr></thead>
+      <tbody>{result.predictions.map((point) => <tr key={point.date} className="border-t border-slate-100"><td className="px-3 py-2">{new Date(`${point.date.slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td><td className="px-3 py-2 text-right">{Number(point.quantity).toLocaleString()}</td></tr>)}</tbody>
+    </table>
+    <p className="px-3 py-2 text-xs text-slate-500">Forecast periods follow the latest recorded demand month.</p>
+  </div>
+}
+
 function ForecastList({ results }) {
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="border-b border-slate-100 px-4 py-3"><p className="text-sm font-semibold text-slate-800">Demand Forecast Agent results</p></div>
       <div className="divide-y divide-slate-100">
         {results.map((result) => (
-          <div key={result.sku} className="flex items-center justify-between gap-4 px-4 py-3">
+          <div key={result.sku} className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
             <div><p className="text-sm font-medium text-slate-800">{result.product_name}</p><p className="mt-1 text-xs text-slate-500">{result.sku} · {result.trend}</p></div>
             <div className="text-right"><p className="text-sm font-semibold text-slate-900">{Number(result.forecast).toLocaleString()} units</p><p className="mt-1 text-xs text-slate-500">next month</p></div>
+            <ForecastMonths result={result} />
           </div>
         ))}
       </div>
@@ -1383,13 +1786,41 @@ function SupplierSuggestionCard({ item }) {
 
 
 function OmniProcurementCard({ data, material }) {
-  const supplier = data.supplier || {}
-  const po = data.po || {}
+  const [current, setCurrent] = useState(data)
+  const supplier = current.supplier || {}
+  const po = current.po || {}
   const [status, setStatus] = useState(data.status || 'unknown')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [actionResult, setActionResult] = useState(null)
   const [actionError, setActionError] = useState('')
-  const isAwaitingApproval = status === 'awaiting_approval'
+  const isAwaitingApproval = status === 'awaiting_approval' && Boolean(po.po_id)
+
+  useEffect(() => {
+    if (!data.run_id) return undefined
+    let active = true
+    async function refresh() {
+      try {
+        const result = await supplyChainApi.getPipelineStatus(data.run_id)
+        if (active) {
+          setCurrent(result)
+          setStatus(result.status)
+          setActionError('')
+        }
+      } catch (error) {
+        if (active) setActionError(error.message)
+      }
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    window.addEventListener('omni:purchase-order-updated', refresh)
+    const interval = ['awaiting_approval', 'approving'].includes(status) ? window.setInterval(refresh, 5000) : null
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('omni:purchase-order-updated', refresh)
+    }
+  }, [data.run_id, status])
 
   async function handleApprove() {
     if (!data.run_id || isSubmitting) {
@@ -1409,12 +1840,13 @@ function OmniProcurementCard({ data, material }) {
       setStatus('completed')
       setActionResult({
         type: 'approved',
-        message: `Approved. Freight booking has been started for this purchase order.${emailMessage}`,
+        message: `Approved.${result.shipment_id ? ` Shipment #${result.shipment_id} created.` : ' No shipment was returned.'}${emailMessage}`,
         details: result,
       })
     } catch (error) {
       setActionError(error.message || 'Could not approve this purchase order.')
     } finally {
+      window.dispatchEvent(new Event('omni:purchase-order-updated'))
       setIsSubmitting(false)
     }
   }
@@ -1437,12 +1869,13 @@ function OmniProcurementCard({ data, material }) {
     } catch (error) {
       setActionError(error.message || 'Could not reject this purchase order.')
     } finally {
+      window.dispatchEvent(new Event('omni:purchase-order-updated'))
       setIsSubmitting(false)
     }
   }
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white text-sm text-slate-700 shadow-sm">
+    <div className="mt-4 min-w-0 overflow-hidden rounded-lg border border-[#e2e8f0] bg-white text-sm text-slate-700 shadow-sm">
       <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-[#ffffff] px-4 py-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#0369a1]">Procurement run</p>
@@ -1457,7 +1890,7 @@ function OmniProcurementCard({ data, material }) {
             ? 'bg-amber-100 text-amber-700'
             : status === 'failed'
               ? 'bg-red-100 text-red-700'
-              : 'bg-emerald-100 text-emerald-700'
+              : status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
         }`}>
           {formatStatus(status)}
         </span>
@@ -1465,16 +1898,22 @@ function OmniProcurementCard({ data, material }) {
 
       <div className="grid gap-3 p-4 md:grid-cols-2">
         <Detail label="Run ID" value={data.run_id || '-'} />
-        <Detail label="Material Type" value={formatStatus(data.material_type || 'unknown')} />
+        <Detail label="Material Type" value={formatStatus(current.material_type || 'unknown')} />
         <Detail label="Supplier" value={supplier.supplier_name || '-'} />
         <Detail label="Country" value={supplier.country || '-'} />
         <Detail label="Rating" value={supplier.rating !== undefined ? Number(supplier.rating).toFixed(1) : '-'} />
         <Detail label="Lead Time" value={supplier.lead_time_days ? `${supplier.lead_time_days} days` : '-'} />
         <Detail label="PO ID" value={po.po_id ? `#${po.po_id}` : '-'} />
-        <Detail label="PO Status" value={formatStatus(po.status || status)} />
-        <Detail label="Quantity" value={data.qty ? Number(data.qty).toLocaleString() : po.qty ? Number(po.qty).toLocaleString() : '-'} />
-        <Detail label="Total Value" value={data.total_value ? `LKR ${Number(data.total_value).toLocaleString()}` : '-'} />
+        <Detail label="PO Status" value={formatStatus(status === 'completed' ? 'approved' : status === 'rejected' ? 'rejected' : po.status || status)} />
+        <Detail label="Quantity" value={`${current.qty != null ? Number(current.qty).toLocaleString() : po.qty != null ? Number(po.qty).toLocaleString() : '-'} ${current.po_details?.unit || material?.unit || ''}`} />
+        <Detail label={current.po_details?.price_basis === 'planning_estimate' ? 'Estimated total (verify before approval)' : 'Total value'} value={current.total_value != null ? `LKR ${Number(current.total_value).toLocaleString()}` : '-'} />
       </div>
+
+      <dl className="grid gap-3 border-t border-slate-100 px-4 py-3 text-xs sm:grid-cols-3" aria-label="Order action status">
+        <div><dt className="text-slate-500">Purchase order</dt><dd className="mt-1 font-medium">{po.po_id ? `#${po.po_id} - ${formatStatus(status === 'completed' ? 'approved' : status === 'rejected' ? 'rejected' : po.status || status)}` : 'Not drafted'}</dd></div>
+        <div><dt className="text-slate-500">Freight</dt><dd className="mt-1 font-medium">{current.shipment?.shipment_id ? `Shipment #${current.shipment.shipment_id} created` : isAwaitingApproval ? 'Waiting for approval' : 'No shipment recorded'}</dd></div>
+        <div><dt className="text-slate-500">Supplier email</dt><dd className={`mt-1 break-words font-medium ${current.email_error ? 'text-amber-800' : ''}`}>{current.email_sent ? `Sent to ${current.email_recipient}` : current.email_error || (isAwaitingApproval ? 'Waiting for approval' : 'Not sent')}</dd></div>
+      </dl>
 
       {supplier.compliance_proof && (
         <div className="border-t border-slate-100 px-4 py-3">
@@ -1535,9 +1974,9 @@ function OmniProcurementCard({ data, material }) {
         </div>
       )}
 
-      {data.error && (
+      {current.error && (
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
-          {data.error}
+          {current.error}
         </div>
       )}
     </div>
@@ -1591,7 +2030,7 @@ function generateShades(baseName) {
   const hues = {
     red: 0, orange: 30, yellow: 60, green: 120, teal: 180,
     blue: 215, navy: 230, purple: 270, pink: 330, brown: 25,
-    olive: 80, mint: 150
+    olive: 80, mint: 150, beige: 35, khaki: 45, maroon: 345
   };
   
   const b = baseName.toLowerCase();

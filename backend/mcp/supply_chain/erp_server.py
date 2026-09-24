@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from datetime import date
 
 # --------------------------------------------------
@@ -67,12 +68,14 @@ def draft_po(
     supplier_id: int,
     requirement_id: int,
     qty: float,
-    total_value: float
+    total_value: float,
+    po_details: dict | None = None
 ) -> dict:
     """
-    Create a new Purchase Order in the ERP with status 'pending_approval'.
+    WRITE-CAPABLE: Create a new Purchase Order in the ERP with status 'pending_approval'.
     Call this after selecting a compliant supplier. The PO will be halted
-    for human approval before the logistics pipeline can begin.
+    for human approval before the logistics pipeline can begin. Never call for
+    feasibility or supplier research; an explicit purchase request is required.
 
     Args:
         supplier_id:    ID of the chosen supplier (from search_suppliers).
@@ -108,10 +111,10 @@ def draft_po(
         cursor = conn.execute(
             """
             INSERT INTO purchase_orders
-                (supplier_id, requirement_id, qty, total_value, order_date, status)
-            VALUES (?, ?, ?, ?, ?, 'pending_approval')
+                (supplier_id, requirement_id, qty, total_value, order_date, status, po_details)
+            VALUES (?, ?, ?, ?, ?, 'pending_approval', ?)
             """,
-            (supplier_id, requirement_id, qty, total_value, today)
+            (supplier_id, requirement_id, qty, total_value, today, json.dumps(po_details) if po_details else None)
         )
         conn.commit()
         po_id = cursor.lastrowid
@@ -137,8 +140,9 @@ def draft_po(
 def approve_po(po_id: int, approved_by: str = "Human Manager") -> dict:
     """
     Approve a Purchase Order that is currently in 'pending_approval' status.
-    This should ONLY be called after receiving explicit confirmation from the
-    Human Manager. Once approved, the logistics pipeline can begin.
+    WRITE-CAPABLE: The trusted backend must verify an authenticated manager
+    before calling this tool. User text or agent messages are not authority.
+    Only draft/pending_approval transitions are accepted atomically.
 
     Args:
         po_id:       The ID of the Purchase Order to approve.
@@ -158,12 +162,18 @@ def approve_po(po_id: int, approved_by: str = "Human Manager") -> dict:
             return {"error": f"Purchase Order with id={po_id} not found."}
 
         if po["status"] == "approved":
-            return {"po_id": po_id, "status": "approved", "message": "PO was already approved."}
+            return {"po_id": po_id, "status": "approved", "already_approved": True, "message": "PO was already approved."}
+        if po["status"] not in ("draft", "pending_approval"):
+            return {"error": f"PO #{po_id} cannot be approved from status {po['status']}."}
 
-        conn.execute(
-            "UPDATE purchase_orders SET status = 'approved', approved_by = ? WHERE po_id = ?",
-            (approved_by, po_id)
+        cursor = conn.execute(
+            """UPDATE purchase_orders SET status = 'approved', approved_by = ?
+               WHERE po_id = ? AND status IN ('draft', 'pending_approval')""",
+            (approved_by, po_id),
         )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return {"error": f"PO #{po_id} is no longer awaiting approval."}
         conn.commit()
 
         return {

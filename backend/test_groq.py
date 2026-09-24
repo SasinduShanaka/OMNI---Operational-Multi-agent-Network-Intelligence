@@ -1,29 +1,19 @@
-import os
-from dotenv import load_dotenv
-from groq import Groq
+"""Offline LLM readiness check; no provider call during automated tests."""
+
+import unittest
+from unittest.mock import patch
+
+from backend import readiness
 
 
-# Load backend/.env
-load_dotenv()
+class LanguageModelConfigurationTests(unittest.TestCase):
+    def test_missing_key_is_reported_without_contacting_provider(self):
+        with patch.dict("os.environ", {"GROQ_API_KEY": ""}), \
+             patch("backend.supply_chain.email_service.email_configuration_status", return_value={"status": "needs_attention"}):
+            result = readiness.system_readiness()
+        model = next(check for check in result["checks"] if check["name"] == "Language model")
+        self.assertEqual(model["status"], "needs_attention")
 
 
-# Create Groq client
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-
-# Send a simple test request
-response = client.chat.completions.create(
-    model="openai/gpt-oss-20b",
-    messages=[
-        {
-            "role": "user",
-            "content": "Say hello and explain in one sentence what an Operations Agent does."
-        }
-    ],
-)
-
-
-print("\nGroq response:")
-print(response.choices[0].message.content)
+if __name__ == "__main__":
+    unittest.main()

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import DemandDashboard from './DemandDashboard'
+import { apiFetch } from '../api/http'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 function DemandForecastPage({ setActivePage }) {
   const initialRequestStarted = useRef(false)
@@ -17,7 +18,7 @@ function DemandForecastPage({ setActivePage }) {
     setError('')
     setResult(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/forecast`, {
+      const response = await apiFetch(`${API_BASE_URL}/forecast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sku: requestedSku, periods: Number(requestedPeriods), save_audit: true }),
@@ -37,7 +38,7 @@ function DemandForecastPage({ setActivePage }) {
     initialRequestStarted.current = true
     async function loadProducts() {
       try {
-        const response = await fetch(`${API_BASE_URL}/forecast/products`)
+        const response = await apiFetch(`${API_BASE_URL}/forecast/products`)
         const data = await response.json()
         if (!response.ok) throw new Error(data?.detail?.message || 'Unable to load forecast products.')
         setProducts(data.products)

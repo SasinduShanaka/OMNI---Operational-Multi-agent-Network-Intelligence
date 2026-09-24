@@ -1,5 +1,7 @@
+import { apiFetch } from '../api/http'
+
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+  import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:8000`
 
 
 // ============================================================
@@ -8,7 +10,7 @@ const API_BASE_URL =
 
 export async function fetchSystemHealth() {
 
-  const response = await fetch(`${API_BASE_URL}/`)
+  const response = await apiFetch(`${API_BASE_URL}/`)
 
   if (!response.ok) {
     throw new Error(`Health request failed: ${response.status}`)
@@ -24,7 +26,7 @@ export async function fetchSystemHealth() {
 
 export async function askOperationsAgent(message) {
 
-  const response = await fetch(`${API_BASE_URL}/ask`, {
+  const response = await apiFetch(`${API_BASE_URL}/ask`, {
 
     method: 'POST',
 
