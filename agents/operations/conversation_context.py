@@ -12,6 +12,17 @@ EVIDENCE_TTL_SECONDS = 5 * 60
 MAX_CONTEXTS = 500
 
 
+class ProcurementMaterialChoice(BaseModel):
+    material_code: str
+    material_name: str
+    shortage: float
+    unit: str = "units"
+
+
+class PendingMaterialSelection(BaseModel):
+    materials: list[ProcurementMaterialChoice] = Field(default_factory=list)
+
+
 class ConversationContext(BaseModel):
     session_id: str | None = None
     active_topic: str | None = None
@@ -35,6 +46,7 @@ class ConversationContext(BaseModel):
     previous_decisions: list[dict] = Field(default_factory=list)
     pending_questions: list[str] = Field(default_factory=list)
     open_actions: list[dict] = Field(default_factory=list)
+    pending_material_selection: PendingMaterialSelection | None = None
     agent_findings: dict = Field(default_factory=dict)
     unresolved_risks: list[str] = Field(default_factory=list)
     last_user_intent: str | None = None
@@ -105,10 +117,14 @@ def remember_context(session_id: str | None, user_id: str | None, response: dict
                 context.blocking_materials = []
                 context.referenced_materials = []
                 context.production_findings = {}
+                context.pending_material_selection = None
             if response.get("intent") == "procurement":
                 context.supplier_options = [{name: item.get(name) for name in
                     ("supplier_id", "name", "category", "lead_time_days", "rating", "estimated_total")}
                     for item in (response.get("suppliers") or [])[:20] if isinstance(item, dict)]
+                if response.get("pending_material_selection"):
+                    context.pending_material_selection = PendingMaterialSelection.model_validate(
+                        response["pending_material_selection"])
             if response.get("intent") == "low_stock_procurement" and response.get("status") == "success":
                 context.inventory_findings = {"low_stock": [{name: item.get(name) for name in
                     ("material_code", "material_name", "current_stock", "reorder_level", "unit")}
@@ -128,6 +144,7 @@ def remember_context(session_id: str | None, user_id: str | None, response: dict
                                ("objective", "product_name", "sku", "quantity", "deadline")}
         context.last_business_intent = response.get("intent")
         context.last_conversation_intent = "assessment"
+        context.pending_material_selection = None
         context.current_goal = {name: goal.get(name) for name in
                                 ("objective", "product_name", "sku", "quantity", "deadline")}
         context.entities = {name: goal.get(name) for name in ("product_name", "sku", "quantity", "deadline")}
@@ -181,6 +198,54 @@ def remember_context(session_id: str | None, user_id: str | None, response: dict
         _contexts[key] = context
 
 
+def clear_pending_material_selection(session_id: str | None, user_id: str | None) -> None:
+    """Clear only the pending material question, preserving verified shortages."""
+    if not session_id or not user_id:
+        return
+    key = _key(session_id, user_id)
+    with _lock:
+        context = _contexts.get(key)
+        if context:
+            context.pending_material_selection = None
+            context.pending_questions = []
+            context.unresolved_questions = []
+            context.updated_at = datetime.now(timezone.utc)
+
+
+def resolve_pending_material_selection(message: str, context: ConversationContext | None) -> dict | None:
+    """Resolve a reply only against the verified materials in the active question."""
+    pending = context.pending_material_selection if context else None
+    if not pending or not pending.materials:
+        return None
+
+    normalized = " ".join(re.findall(r"[a-z0-9]+", message.lower()))
+    if normalized in {"cancel", "never mind", "nevermind", "stop", "dont order anything",
+                      "don t order anything", "do not order anything"}:
+        return {"status": "cancelled"}
+
+    ordinal_words = {"first": 0, "first one": 0, "1": 0, "one": 0,
+                     "second": 1, "second one": 1, "2": 1, "two": 1,
+                     "third": 2, "third one": 2, "3": 2, "three": 2,
+                     "fourth": 3, "fourth one": 3, "4": 3, "four": 3}
+    if normalized in ordinal_words:
+        index = ordinal_words[normalized]
+        if index < len(pending.materials):
+            return {"status": "selected", "material": pending.materials[index].model_dump()}
+
+    query_tokens = set(normalized.split()) - {"the", "material"}
+    matches = []
+    for material in pending.materials:
+        code = " ".join(re.findall(r"[a-z0-9]+", material.material_code.lower()))
+        name = " ".join(re.findall(r"[a-z0-9]+", material.material_name.lower()))
+        name_tokens = set(name.split())
+        if normalized == code or normalized == name or (query_tokens and query_tokens <= name_tokens):
+            matches.append(material)
+
+    if len(matches) == 1:
+        return {"status": "selected", "material": matches[0].model_dump()}
+    return {"status": "ambiguous" if len(matches) > 1 else "no_match"}
+
+
 def resolve_followup(message: str, context: ConversationContext | None) -> str:
     """Resolve only analytical follow-ups; never inherit purchase authority."""
     if not context or context.current_goal.get("objective") != "evaluate_order_feasibility":
@@ -214,6 +279,22 @@ def contextual_shortages(message: str, context: ConversationContext | None) -> l
     if not context or context.active_topic != "production_order" or context.pending_approvals:
         return []
     text = message.lower()
+    if re.search(r"\b(?:do|order|buy|purchase|procure|source|draft)\b", text):
+        ignored = {"now", "do", "order", "buy", "purchase", "procure", "source", "draft",
+                   "the", "a", "an", "material", "materials", "shortage", "shortages", "next"}
+        query_tokens = {token[:-1] if token.endswith("s") and len(token) > 3 else token
+                        for token in re.findall(r"[a-z0-9]+", text)} - ignored
+        named_matches = []
+        for item in context.blocking_materials:
+            code = " ".join(re.findall(r"[a-z0-9]+", str(item.get("material_code", "")).lower()))
+            name_tokens = {token[:-1] if token.endswith("s") and len(token) > 3 else token
+                           for token in re.findall(r"[a-z0-9]+", str(item.get("material_name", "")).lower())}
+            if code and code in " ".join(re.findall(r"[a-z0-9]+", text)):
+                named_matches.append(item)
+            elif query_tokens & name_tokens:
+                named_matches.append(item)
+        if len(named_matches) == 1:
+            return [named_matches[0].copy()]
     if not re.search(r"\b(?:order|buy|purchase|procure|source|replenish|draft)\b", text):
         return []
     if not re.search(r"\b(?:insufficient|short|shortage|missing|blocking|needed|required)\b", text):

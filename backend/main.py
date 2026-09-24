@@ -573,9 +573,18 @@ def _supplier_options(requirements: dict) -> list[dict]:
 def _start_contextual_procurement(session_id: str, materials: list[dict]) -> dict:
     """Seed existing supplier-selection flow; this never drafts or approves a PO."""
     if len(materials) != 1:
-        names = ", ".join(item.get("material_name") or item["material_code"] for item in materials)
+        choices = "\n".join(
+            f"{index}. {item.get('material_name') or item['material_code']} — "
+            f"{item['shortage']:,.0f} {item.get('unit') or 'units'}"
+            for index, item in enumerate(materials, 1)
+        )
         return {"agent": "Operations Agent", "intent": "procurement", "status": "needs_more_info",
-                "answer": f"I found shortages for {names}. Which material should I source first?",
+                "answer": f"I found shortages for:\n{choices}\n\nWhich material should I source first?",
+                "pending_material_selection": {"materials": [
+                    {name: item.get(name) for name in
+                     ("material_code", "material_name", "shortage", "unit")}
+                    for item in materials
+                ]},
                 "workflow": ["Operations Agent"], "requires_approval": False}
     from agents.operations.operations_agent import _material_type_for_shortage
 
@@ -838,7 +847,10 @@ def _process_ask(request: AskRequest):
         # Check active session
         session_id = request.session_id
         from agents.operations import process_request
-        from agents.operations.conversation_context import get_context, remember_context, compare_recent, contextual_shortages
+        from agents.operations.conversation_context import (
+            clear_pending_material_selection, compare_recent, contextual_shortages,
+            get_context, remember_context, resolve_pending_material_selection,
+        )
         user_id = (principal.get() or {}).get("user_id")
 
         # User text cannot impersonate a system/manager message to reach the
@@ -848,6 +860,28 @@ def _process_ask(request: AskRequest):
             return process_request(request.message)
 
         context = get_context(session_id, user_id)
+        pending_selection = resolve_pending_material_selection(request.message, context)
+        if pending_selection:
+            if pending_selection["status"] == "cancelled":
+                clear_pending_material_selection(session_id, user_id)
+                return {"agent": "Operations Agent", "intent": "procurement",
+                        "status": "cancelled",
+                        "answer": "Okay. No procurement action was started.",
+                        "workflow": ["Operations Agent"], "requires_approval": False}
+            if pending_selection["status"] == "selected":
+                clear_pending_material_selection(session_id, user_id)
+                result = _start_contextual_procurement(
+                    session_id, [pending_selection["material"]])
+                remember_context(session_id, user_id, result)
+                record_agent_activity("Selected verified shortage material", result, session_id, "Medium")
+                return result
+            choices = " or ".join(
+                item.material_name for item in context.pending_material_selection.materials)
+            return {"agent": "Operations Agent", "intent": "procurement",
+                    "status": "needs_more_info",
+                    "answer": f"I couldn't match that to one of the shortage materials. Please choose {choices}.",
+                    "workflow": ["Operations Agent"], "requires_approval": False}
+
         shortages = contextual_shortages(request.message, context)
         if shortages and session_id and session_id not in procurement_sessions:
             result = _start_contextual_procurement(session_id, shortages)
