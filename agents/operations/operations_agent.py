@@ -14,7 +14,7 @@ try:
 except ImportError:
     Groq = None
 
-from agents.inventory_agent import (
+from backend.mcp.factory_operations.client import (
     add_inventory_item,
     get_all_inventory,
     get_low_stock,
@@ -27,11 +27,9 @@ from agents.inventory_agent import (
     get_inventory_summary,
     get_largest_shortages,
     get_inventory_kpis,
-)
-from agents.forecast_agent import forecast_all_demand, forecast_demand, get_forecast_products
-from agents.forecast_product import resolve_forecast_product
-
-from agents.production_agent import (
+    forecast_all_demand,
+    forecast_demand,
+    get_forecast_products,
     get_all_lines,
     identify_bottlenecks,
     get_production_orders,
@@ -39,12 +37,13 @@ from agents.production_agent import (
     get_product_materials,
     check_production_feasibility,
 )
+from agents.forecast.forecast_product import resolve_forecast_product
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 
 load_dotenv(ENV_PATH)
@@ -100,6 +99,33 @@ class OperationsState(TypedDict, total=False):
     inventory: list[dict]
     supply_chain_mode: str
     risks: list[str]
+    goal: dict
+    plan: list[dict]
+    completed_steps: list[dict]
+    evidence: dict
+    next_agent: str | None
+    next_task: str | None
+    next_reason: str | None
+    missing_information: list[str]
+    requires_approval: bool
+    iteration: int
+    max_iterations: int
+    status: str
+    stop_reason: str | None
+    known_facts: dict
+    unknowns: list[str]
+    agent_messages: list[dict]
+    open_agent_requests: list[dict]
+    assumptions: list[str]
+    contradictions: list[str]
+    confidence: str | None
+    review: dict
+    review_rounds: int
+    reviewed_steps: int
+    events: list[dict]
+    retry_counts: dict
+    original_request: str
+    session_context: dict
 
 
 # ============================================================
@@ -109,7 +135,14 @@ class OperationsState(TypedDict, total=False):
 def _extract_common_entities(user_request: str) -> dict:
     sku_match = re.search(r"\bGAR-\d{3}\b", user_request, re.IGNORECASE)
     material_code_match = re.search(r"\b(?:FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", user_request, re.IGNORECASE)
-    quantity_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", user_request)
+    # Product IDs and dates are not order quantities.
+    quantity_text = re.sub(r"\b(?:GAR|FAB|THR|BTN|LBL|PKG|MAT)-\d{3}\b", " ", user_request, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b20\d{2}-\d{2}-\d{2}\b", " ", quantity_text)
+    quantity_text = re.sub(
+        r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+20\d{2})?\b",
+        " ", quantity_text, flags=re.IGNORECASE)
+    quantity_text = re.sub(r"\b(?:in|within)\s+\d+\s+(?:days?|weeks?)\b", " ", quantity_text, flags=re.IGNORECASE)
+    quantity_match = re.search(r"\b(\d[\d,]*(?:\.\d+)?)\b", quantity_text)
 
     return {
         "material_name": None,
@@ -228,6 +261,21 @@ def _extract_date(user_request: str) -> str | None:
     iso_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
     if iso_match:
         return iso_match.group(1)
+
+    month_match = re.search(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b",
+        text,
+    )
+    if month_match:
+        month = datetime.strptime(month_match.group(1), "%B").month
+        year = int(month_match.group(3)) if month_match.group(3) else today.year
+        try:
+            candidate = today.replace(year=year, month=month, day=int(month_match.group(2)))
+        except ValueError:
+            return None
+        if not month_match.group(3) and candidate < today:
+            candidate = candidate.replace(year=year + 1)
+        return candidate.isoformat()
 
     return None
 
@@ -1678,7 +1726,7 @@ def _execute_specialist_request(user_request: str):
             }
 
         if selection.get("mode") == "comparison":
-            from agents.forecast_comparison import compare_last_month
+            from agents.forecast.forecast_comparison import compare_last_month
             try:
                 comparisons = compare_last_month([selection["sku"]] if selection["status"] == "matched" else [p["sku"] for p in products])
             except Exception:
@@ -2781,12 +2829,83 @@ def build_operations_graph():
     return graph.compile()
 
 
-operations_graph = build_operations_graph()
+from agents.operations.operations_workflow import build_operations_graph as build_supervisor_graph
+
+operations_graph = build_supervisor_graph()
+
+# User text is data, never a replacement for the system/developer rules. Keep
+# this check before LangGraph classification so an injection cannot be turned
+# into an operational intent by the LLM. Authorization and approval checks
+# still happen in the API and procurement workflow.
+_PROMPT_ATTACK_PATTERNS = (
+    r"\bignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions\b",
+    r"\b(?:reveal|show|print|repeat|disclose)\b.*\b(?:system|hidden|internal)\s+(?:prompt|instructions?)\b",
+    r"\b(?:api\s*key|secret|password|token|\.env|environment variables?)\b",
+    r"\byou are now an?\s+(?:unrestricted|unfiltered|different)\s+assistant\b",
+    r"\b(?:system message|developer message)\s*:\s*",
+    r"\brepeat\s+(?:all\s+)?(?:instructions|messages?)\b",
+    r"\b(?:system|hidden)\s+.*\buser\s+messages?\b",
+    r"\b(?:bypass|skip|ignore)\b.*\b(?:human|manager)\b.*\bapproval\b",
+    r"\b(?:i am|i'm)\s+(?:the\s+)?(?:admin|administrator|manager)\b.*\b(?:bypass|approve|authorize)\b",
+    r"\bsay\s+[\"']?approved[\"']?.*\b(?:pending|even if)\b",
+    r"\b(?:do not|don't)\s+(?:mention|report|show|include)\b.*\b(?:shortages?|low stock|deficits?)\b",
+)
 
 
-def process_request(user_request: str):
+def _prompt_attack_kind(user_request: str) -> str | None:
+    text = str(user_request or "")
+    lowered = text.lower()
+    if any(re.search(pattern, lowered, re.IGNORECASE) for pattern in _PROMPT_ATTACK_PATTERNS):
+        if any(word in lowered for word in ("api key", "secret", "password", "token", ".env", "environment variable")):
+            return "secrets"
+        if "approval" in lowered or "approve" in lowered or "authorize" in lowered:
+            return "authority"
+        if any(word in lowered for word in ("shortage", "low stock", "deficit", "pending")):
+            return "data_integrity"
+        return "prompt_disclosure"
+    return None
+
+
+def _security_response(kind: str) -> dict:
+    messages = {
+        "prompt_disclosure": (
+            "I can’t reveal hidden prompts, internal instructions, or private agent messages. "
+            "I can explain OMNI’s public workflow, agents, MCP tools, and safety controls."
+        ),
+        "secrets": (
+            "I can’t provide API keys, passwords, tokens, environment variables, or other secrets. "
+            "Those values are kept outside the chat and are never used as operational data."
+        ),
+        "authority": (
+            "I can’t change roles or bypass human approval based on a message. "
+            "The authenticated manager and the saved purchase-order status control approval."
+        ),
+        "data_integrity": (
+            "I will report the verified inventory and workflow status, including shortages and pending approvals. "
+            "User instructions cannot alter operational facts."
+        ),
+    }
+    return {
+        "agent": "Operations Agent",
+        "llm_used": False,
+        "intent": "security_boundary",
+        "status": "blocked",
+        "workflow": ["Operations Agent", "Security Boundary"],
+        "answer": messages[kind],
+        "security": {"category": kind, "action": "refused", "grounding": "policy"},
+    }
+
+
+def process_request(user_request: str, context=None):
     """Run the Operations Agent as a LangGraph supervisor over specialist agents."""
-    final_state = operations_graph.invoke({"user_request": user_request})
+    attack_kind = _prompt_attack_kind(user_request)
+    if attack_kind:
+        return _security_response(attack_kind)
+    from agents.operations.conversation_context import resolve_followup
+    resolved_request = resolve_followup(user_request, context)
+    final_state = operations_graph.invoke({"user_request": resolved_request,
+                                           "original_request": user_request,
+                                           "session_context": context.model_dump(mode="json") if context else {}})
     response = final_state["response"]
     response["llm_used"] = client is not None
     response.setdefault("orchestrator", "LangGraph")

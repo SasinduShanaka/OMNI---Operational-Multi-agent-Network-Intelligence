@@ -5,7 +5,8 @@ import ForecastPdfPreview from './ForecastPdfPreview'
 import ForecastChart from './ForecastChart'
 import ForecastAccuracy from './ForecastAccuracy'
 import { ScenePage, SkeletonCard } from './FactoryScene'
-import { Donut, Meter, MiniBars, SERIES } from './metrics/MetricVisuals'
+import { Donut, Meter, MiniBars } from './metrics/MetricVisuals'
+import { SERIES } from './metrics/metricColors'
 
 const number = (value) => value == null ? 'N/A' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })
 const month = (value) => value ? new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'

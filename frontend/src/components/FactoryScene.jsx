@@ -13,7 +13,7 @@ import fabricScene from '../assets/fabric.png'
 import supplierScene from '../assets/supplier.png'
 import forecastScene from '../assets/demand.png'
 
-export const SCENES = {
+const SCENES = {
   overview: {
     image: overviewScene,
     aspect: '1672 / 560',

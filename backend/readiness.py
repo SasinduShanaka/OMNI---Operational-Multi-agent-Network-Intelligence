@@ -45,6 +45,24 @@ def system_readiness():
             checks.append({"name": label, "source": "Local ERP / TMS", "status": "unavailable",
                            "message": "Local records are unavailable. Check the supply-chain database setup."})
 
+    knowledge_dir = Path(__file__).resolve().parent.parent / "knowledge"
+    for label, store, collection in (
+        ("Production SOP retrieval", knowledge_dir / "chroma_store" / "chroma.sqlite3", "production_sops"),
+        ("Market retrieval", knowledge_dir / "chroma_store" / "chroma.sqlite3", "market_context"),
+        ("Supplier contract retrieval", knowledge_dir / "supply_chain" / "rag" / "chroma_store" / "chroma.sqlite3", "supplier_contracts"),
+    ):
+        try:
+            conn = sqlite3.connect(f"{store.as_uri()}?mode=ro", uri=True)
+            try:
+                exists = conn.execute("SELECT 1 FROM collections WHERE name = ?", (collection,)).fetchone()
+            finally:
+                conn.close()
+            checks.append({"name": label, "source": "ChromaDB", "status": "ready" if exists else "needs_attention",
+                           "message": "Collection available." if exists else "Collection missing. Rebuild the knowledge index."})
+        except (sqlite3.Error, OSError):
+            checks.append({"name": label, "source": "ChromaDB", "status": "unavailable",
+                           "message": "Vector store unavailable. Rebuild the knowledge index."})
+
     llm_configured = bool(os.getenv("GROQ_API_KEY", "").strip())
     checks.append({"name": "Language model", "status": "configured" if llm_configured else "needs_attention",
                    "message": "Credentials configured; provider connectivity has not been tested." if llm_configured else "Language-model credentials are missing."})

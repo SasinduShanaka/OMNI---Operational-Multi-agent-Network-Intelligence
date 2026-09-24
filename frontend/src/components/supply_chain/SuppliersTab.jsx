@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { supplyChainApi } from '../../api/supplyChainApi'
 
 // Star rating renderer
@@ -135,7 +135,7 @@ export default function SuppliersTab({ suppliers, onUpdate, onRequestSupply }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map((s, idx) => {
+            {filtered.map((s) => {
               const cat = CATEGORY_META[s.category] || { label: s.category, cls: 'bg-slate-100 text-slate-600 border-slate-200' }
               const isEditing = editingId === s.supplier_id
 

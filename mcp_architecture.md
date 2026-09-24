@@ -1,42 +1,57 @@
 # Model Context Protocol (MCP) Architecture & Tools
 
-Based on the Balanced Scope Project Plan and User Stories, this document defines the exact architecture for the two Mock MCP Servers (ERP and TMS) and the specific tools they will expose to the agents.
+OMNI uses three MCP boundaries. The Factory Operations server exposes internal inventory, forecasting, production, and reporting capabilities. The ERP and TMS servers represent external enterprise systems used by the supply-chain workflow.
 
 ## 1. High-Level MCP Architecture
 
-The system utilizes two distinct Mock MCP servers to decouple the databases from the LLM agents. This mimics real-world enterprise architectures where systems like SAP (ERP) and project44 (TMS) are walled off behind strict APIs.
+LangGraph controls routing and workflow state. MCP supplies controlled tool interfaces for operational data and actions.
 
 ```mermaid
 flowchart LR
-    subgraph Agents
-        A1[Agent 1: Sourcing]
-        A2[Agent 2: Purchasing]
-        A3[Agent 3: Freight]
-        A4[Agent 4: Tracking]
-    end
+    U[Manager] -->|HTTP| API[FastAPI]
+    API --> O[Operations Agent]
+    API --> R[Report Agent]
+    O -->|Workflow state| LG[LangGraph]
 
-    subgraph MCP Servers
-        M1[ERP MCP Server]
-        M2[TMS MCP Server]
-    end
+    LG --> I[Inventory]
+    LG --> F[Forecast]
+    LG --> P[Production]
+    LG --> S[Supply Chain]
 
-    subgraph Databases
-        D1[(mock-erp.db)]
-        D2[(mock-tms.db)]
-    end
+    I -->|MCP| M0[Factory Operations MCP]
+    F -->|MCP| M0
+    P -->|MCP| M0
+    R -->|MCP| M0
+    M0 --> D0[(MongoDB)]
 
-    A1 -->|MCP Protocol| M1
-    A2 -->|MCP Protocol| M1
-    M1 --> D1
-
-    A3 -->|MCP Protocol| M2
-    A4 -->|MCP Protocol| M2
-    M2 --> D2
+    S -->|Sourcing / Purchasing| M1[ERP MCP]
+    M1 --> D1[(mock-erp.db)]
+    S -->|Freight / Tracking| M2[TMS MCP]
+    M2 --> D2[(mock-tms.db)]
 ```
 
 ---
 
-## 2. ERP MCP Server Tools (Procurement)
+## 2. Factory Operations MCP Server
+
+The Factory Operations server is implemented in `backend/mcp/factory_operations/server.py`. The local application uses FastMCP's in-memory transport so tool calls do not start a new subprocess on every request. The same server can be started over stdio for an external MCP client:
+
+```powershell
+python -m backend.mcp.factory_operations.server
+```
+
+Published tool groups:
+
+- **Inventory:** list and classify stock, find a material, calculate shortages, calculate reorder requirements, add a material, and return inventory KPIs.
+- **Forecast:** list forecastable products, validate demand data, forecast one product, and forecast all usable products.
+- **Production:** list lines and orders, calculate utilization and bottlenecks, retrieve a bill of materials, assess feasibility, and return production KPIs.
+- **Reports:** generate a read-only, evidence-grounded management report.
+
+The synchronous facade in `backend/mcp/factory_operations/client.py` preserves the function signatures used by FastAPI and LangGraph while ensuring each operation is invoked as an MCP tool.
+
+---
+
+## 3. ERP MCP Server Tools (Procurement)
 
 This server interacts strictly with the `mock-erp.db` (Tables: `suppliers`, `purchase_orders`).
 
@@ -65,7 +80,7 @@ This server interacts strictly with the `mock-erp.db` (Tables: `suppliers`, `pur
 
 ---
 
-## 3. TMS MCP Server Tools (Logistics)
+## 4. TMS MCP Server Tools (Logistics)
 
 This server interacts strictly with the `mock-tms.db` (Tables: `carriers`, `shipments`).
 
@@ -101,5 +116,5 @@ This server interacts strictly with the `mock-tms.db` (Tables: `carriers`, `ship
 
 ---
 
-## 4. Note on RAG & Compliance
+## 5. Note on RAG & Compliance
 The RAG capabilities (parsing PDF supplier contracts) will **not** be an MCP tool. Instead, it will be a local tool/function given specifically to Agent 1. This keeps the MCP boundaries strictly related to structured Database transactions (ERP/TMS), while unstructured AI processing remains at the Agent layer.

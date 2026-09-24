@@ -31,10 +31,10 @@ class FeasibilityTests(unittest.TestCase):
     def setUpClass(cls):
         connection = types.ModuleType("database.connection")
         connection.db = MagicMock()
-        inventory = types.ModuleType("agents.inventory_agent")
+        inventory = types.ModuleType("agents.inventory.inventory_agent")
         inventory.check_inventory_requirement = Mock()
-        with patch.dict(sys.modules, {"database.connection": connection, "agents.inventory_agent": inventory}):
-            cls.agent = load_module("evaluation_production", "agents/production_agent.py")
+        with patch.dict(sys.modules, {"database.connection": connection, "agents.inventory.inventory_agent": inventory}):
+            cls.agent = load_module("evaluation_production", "agents/production/production_agent.py")
 
     def setUp(self):
         self.original_capacity = self.agent.check_capacity
@@ -177,7 +177,7 @@ class PlanningTests(unittest.TestCase):
     def setUpClass(cls):
         # Match the repository's function-isolation approach without importing live providers.
         import ast
-        source = ast.parse((ROOT / "agents/operations_agent.py").read_text(encoding="utf-8"))
+        source = ast.parse((ROOT / "agents/operations/operations_agent.py").read_text(encoding="utf-8"))
         names = {"_node_procurement_evidence", "_node_synthesize_plan", "_material_type_for_shortage", "_extract_date"}
         tree = ast.Module(body=[node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
         import re
@@ -186,7 +186,7 @@ class PlanningTests(unittest.TestCase):
                          "_friendly_status": lambda status: status,
                          "_friendly_date": lambda value: value,
                          "_format_count": lambda value: str(value)}
-        exec(compile(tree, "agents/operations_agent.py", "exec"), cls.namespace)
+        exec(compile(tree, "agents/operations/operations_agent.py", "exec"), cls.namespace)
 
     def test_two_shortages_in_same_category_both_get_drafts(self):
         materials = [{"material_code": code, "material_name": code, "shortage": qty, "status": "SHORTAGE", "unit": "meters"}

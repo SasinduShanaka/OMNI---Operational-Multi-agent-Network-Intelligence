@@ -488,6 +488,70 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
     }
 
 
+async def analyze_shortages(materials: list[dict]) -> dict:
+    """Read-only sourcing for Operations; never enter the purchasing pipeline."""
+    from agents.operations.operations_agent import _material_type_for_shortage
+    from agents.supply_chain.sourcing_agent import run_sourcing_agent
+
+    options, errors = [], []
+    for material in materials:
+        shortage = float(material.get("shortage") or 0)
+        if shortage <= 0:
+            shortage = float(material.get("reorder_level") or 0)
+        material_type, requirement_id, unit_cost = _material_type_for_shortage(
+            material.get("material_code"), material.get("material_name")
+        )
+        try:
+            supplier = await run_sourcing_agent(
+                material_type=material_type, requirement_id=requirement_id,
+                compliance_keywords=["Organic Cotton", "Child-Labor Free"])
+            if supplier:
+                options.append({"material_code": material.get("material_code"),
+                                "material_name": material.get("material_name"),
+                                "shortage": shortage, "unit": material.get("unit"),
+                                "supplier": supplier, "lead_time_days": supplier.get("lead_time_days"),
+                                "estimated_cost": shortage * unit_cost if shortage > 0 else None,
+                                "price_basis": "planning_estimate"})
+            else:
+                errors.append({"material_code": material.get("material_code"),
+                               "error": "No compliant supplier found."})
+        except Exception as error:
+            errors.append({"material_code": material.get("material_code"), "error": str(error)})
+    leads = [option["lead_time_days"] for option in options if option["lead_time_days"] is not None]
+    return {"status": "success" if options and not errors else "partial" if options else "error",
+            "options": options, "errors": errors,
+            "lead_time_days": max(leads) if leads and not errors else None,
+            "requires_approval": False, "purchase_orders_created": 0}
+
+
+def assess_sourcing_evidence(facts: dict, goal: dict | None = None):
+    """Summarize verified sourcing and request schedule reassessment, never approval."""
+    from agents.schemas import AgentRequest, AgentResult
+
+    goal = goal or {}
+    options = facts.get("options") or []
+    lead = facts.get("lead_time_days")
+    requests = []
+    if options and lead is not None and goal.get("objective") == "evaluate_order_feasibility":
+        requests.append(AgentRequest(target_agent="production",
+            task=f"Reassess capacity after a {lead}-day material lead time.",
+            reason="Supplier lead time changes the remaining production window.",
+            required_facts=["conditional_capacity", "deadline_feasibility"]))
+    if options:
+        from agents.memory import remember_domain
+        first = options[0]
+        remember_domain("supply_chain", {
+            "topic": first.get("material_code") or first.get("material_name") or "material",
+            "finding": f"Supplier option observed with {first.get('lead_time_days')} day estimated lead time."})
+    return AgentResult(agent="supply_chain",
+                       status="needs_collaboration" if requests else "success" if options else "partial",
+                       conclusion="SOURCING_OPTIONS" if options else "SOURCING_UNVERIFIED",
+                       facts=facts, requests=requests,
+                       risks=[item.get("error", "Supplier unavailable") for item in facts.get("errors", [])],
+                       assumptions=["Supplier lead times and costs are estimates, not confirmed bookings."],
+                       confidence_level="medium" if options else "low")
+
+
 if __name__ == "__main__":
     # Test cases
     print(process_chat_message("I need 400 meters of organic cotton"))

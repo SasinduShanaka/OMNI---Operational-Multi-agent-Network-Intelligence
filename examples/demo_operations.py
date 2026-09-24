@@ -1,4 +1,4 @@
-from agents.operations_agent import process_request
+from agents.operations.operations_agent import process_request
 
 
 request = "Which materials are low in stock?"

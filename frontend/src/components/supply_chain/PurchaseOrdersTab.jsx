@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState } from 'react'
 import { supplyChainApi } from '../../api/supplyChainApi'
 
 // Status badge component

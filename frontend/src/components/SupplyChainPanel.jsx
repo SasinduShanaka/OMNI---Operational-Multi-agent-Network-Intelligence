@@ -1,11 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import SuppliersTab from './supply_chain/SuppliersTab'
 import PurchaseOrdersTab from './supply_chain/PurchaseOrdersTab'
 import ShipmentsTab from './supply_chain/ShipmentsTab'
 import CopilotChat from './supply_chain/CopilotChat'
 import { supplyChainApi } from '../api/supplyChainApi'
 import { ScenePage, SkeletonCard, SkeletonTable } from './FactoryScene'
-import { Donut, Meter, SegmentedBar, SERIES } from './metrics/MetricVisuals'
+import { Donut, Meter, SegmentedBar } from './metrics/MetricVisuals'
+import { SERIES } from './metrics/metricColors'
 import OmniMark from './OmniMark'
 
 // ------------------------------------------------------------------

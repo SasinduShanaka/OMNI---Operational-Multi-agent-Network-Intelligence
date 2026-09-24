@@ -1,14 +1,43 @@
 import os
 import re
+import atexit
 from pymongo import MongoClient
 from dotenv import load_dotenv
+
+
+def assess_inventory_evidence(facts, goal: dict | None = None):
+    """Interpret verified stock facts without changing inventory records."""
+    from agents.schemas import AgentRequest, AgentResult
+
+    goal = goal or {}
+    items = facts if isinstance(facts, list) else [facts] if isinstance(facts, dict) else []
+    shortages = [item for item in items if isinstance(item, dict) and
+                 (item.get("status") in {"SHORTAGE", "LOW_STOCK", "OUT_OF_STOCK"} or
+                  float(item.get("shortage") or 0) > 0)]
+    requests = []
+    if shortages and goal.get("objective") in {"evaluate_order_feasibility", "low_stock_procurement"}:
+        requests.append(AgentRequest(target_agent="supply_chain",
+            task="Check compliant replenishment options for the verified shortage.",
+            reason="Available material may not cover the operational requirement.",
+            required_facts=["lead_time_days", "supplier_compliance"]))
+    risks = [f"{item.get('material_code') or item.get('material_name') or 'Material'} is short by {item.get('shortage')} {item.get('unit', 'units')}."
+             for item in shortages]
+    if shortages:
+        from agents.memory import remember_domain
+        first = shortages[0]
+        remember_domain("inventory", {
+            "topic": first.get("material_code") or first.get("material_name") or "material",
+            "finding": risks[0]})
+    return AgentResult(agent="inventory", status="needs_collaboration" if requests else "success",
+                       conclusion="SHORTAGE" if shortages else "STOCK_REVIEWED", facts={"items": items},
+                       risks=risks, requests=requests, confidence_level="high")
 
 
 # ============================================================
 # ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENV_PATH = os.path.join(BASE_DIR, "backend", ".env")
 
 load_dotenv(ENV_PATH)
@@ -22,6 +51,7 @@ DATABASE_NAME = os.getenv("MONGO_DB_NAME", "OMNI_DB")
 # ============================================================
 
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+atexit.register(client.close)
 
 db = client[DATABASE_NAME]
 

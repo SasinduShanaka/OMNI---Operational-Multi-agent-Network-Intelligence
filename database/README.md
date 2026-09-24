@@ -40,7 +40,7 @@ Three to seven usable months generate a limited-validation warning.
 To demonstrate this feature, use a demo database: insert an invalid date,
 repeat a monthly total, or remove an intermediate month. Check again to see
 issues, correct the data in Compass, and recheck before rerunning the forecast.
-Run `python -B -m unittest agents.test_forecast` for validation tests.
+Run `python -B -m unittest tests.agents.test_forecast` for validation tests.
 
 ## Report Agent and saved management briefs
 
@@ -99,6 +99,6 @@ API endpoints:
 - `POST /reports/schedules`: `scope`, `frequency`, `time`, `day_of_month`.
 - `PATCH /reports/schedules/{schedule_id}`: `{ "enabled": false }` to pause.
 
-Run `python -B -m unittest agents.test_report_agent backend.test_reports` for
+Run `python -B -m unittest tests.agents.test_report_agent backend.test_reports` for
 agent, API, and scheduling tests using mocked storage (no live database changes).
 Run `node --test src/components/chatReports.test.js` from `frontend` for PDF tests.

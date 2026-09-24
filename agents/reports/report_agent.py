@@ -21,24 +21,24 @@ def table(title, columns, rows):
 
 
 def collect_inventory(_scope):
-    from agents.inventory_agent import get_all_inventory
+    from agents.inventory.inventory_agent import get_all_inventory
     return get_all_inventory()
 
 
 def collect_forecast(scope):
-    from agents.forecast_agent import forecast_demand, get_forecast_products
+    from agents.forecast.forecast_agent import forecast_demand, get_forecast_products
     skus = scope.get("skus") or [item["sku"] for item in get_forecast_products()]
     # Do not use forecast_all_demand: it omits unsuccessful forecasts.
     return [forecast_demand(sku, scope.get("periods", 3), save_audit=False) for sku in skus]
 
 
 def collect_production(_scope):
-    from agents.production_agent import get_all_lines, get_production_orders
+    from agents.production.production_agent import get_all_lines, get_production_orders
     return {"lines": get_all_lines(), "orders": get_production_orders()}
 
 
 def collect_supply_chain(_scope):
-    directory = Path(__file__).resolve().parents[1] / "database/supply_chain/sqlite_db"
+    directory = Path(__file__).resolve().parents[2] / "database/supply_chain/sqlite_db"
     result = {}
     for name, filename, query in (
         ("orders", "mock-erp.db", "SELECT po_id, qty, status, expected_delivery_date FROM purchase_orders"),

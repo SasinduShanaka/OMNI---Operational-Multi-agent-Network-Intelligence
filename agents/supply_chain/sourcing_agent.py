@@ -22,27 +22,15 @@ sys.path.insert(0, MCP_DIR)
 ERP_SERVER = os.path.join(MCP_DIR, "erp_server.py")
 
 
-def _search_suppliers_from_sqlite(material_type: str) -> list[dict]:
-    sqlite_dir = os.path.join(BASE_DIR, "database", "supply_chain", "sqlite_db")
-    if sqlite_dir not in sys.path:
-        sys.path.insert(0, sqlite_dir)
-    from db import ensure_erp_db_ready, get_erp_db_connection
-
-    ensure_erp_db_ready()
-    conn = get_erp_db_connection()
-    try:
-        rows = conn.execute(
-            """
-            SELECT supplier_id, name, country, category, lead_time_days, rating
-            FROM suppliers
-            WHERE category = ?
-            ORDER BY rating DESC
-            """,
-            (material_type,),
-        ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+def select_best_supplier(suppliers: list[dict]) -> dict | None:
+    """Rank documented suppliers without using country as a decision factor."""
+    eligible = [supplier for supplier in suppliers
+                if isinstance(supplier.get("rating"), (int, float))
+                and isinstance(supplier.get("lead_time_days"), (int, float))]
+    if not eligible:
+        return None
+    return max(eligible, key=lambda supplier: (supplier["rating"], -supplier["lead_time_days"],
+                                                -supplier["supplier_id"]))
 
 
 # ------------------------------------------------------------------
@@ -99,8 +87,8 @@ async def run_sourcing_agent(
         if isinstance(all_suppliers, dict) and "result" in all_suppliers:
             all_suppliers = all_suppliers["result"]
     except Exception as error:
-        print(f"  [Agent 1] MCP unavailable ({error}); reading ERP SQLite directly.")
-        all_suppliers = _search_suppliers_from_sqlite(material_type)
+        print(f"  [Agent 1] ERP MCP unavailable: {error}")
+        raise RuntimeError("Supplier lookup is unavailable. Check the ERP MCP server.") from error
 
     if not all_suppliers:
         print(f"  [Agent 1] No suppliers found for '{material_type}'.")
@@ -113,8 +101,8 @@ async def run_sourcing_agent(
             if targeted_supplier.lower() in s.get("name", "").lower()
         ]
         if not suppliers:
-            print(f"  [Agent 1] Named supplier '{targeted_supplier}' not found in ERP. Falling back to autonomous mode.")
-            suppliers = all_suppliers
+            print(f"  [Agent 1] Named supplier '{targeted_supplier}' not found in ERP.")
+            return None
     else:
         suppliers = all_suppliers
 
@@ -125,7 +113,9 @@ async def run_sourcing_agent(
     # Skip RAG entirely if no compliance keywords provided — saves ~60s
     if not compliance_keywords:
         print("  [Agent 1] No compliance keywords required — skipping RAG check.")
-        best = max(suppliers, key=lambda s: s.get("rating", 0))
+        best = select_best_supplier(suppliers)
+        if best is None:
+            return None
         print(f"\n  [Agent 1] Best supplier (no compliance filter): {best['name']} (rating={best.get('rating', 0)})")
         return {
             "supplier_id":      best["supplier_id"],
@@ -135,6 +125,7 @@ async def run_sourcing_agent(
             "rating":           best.get("rating", 0),
             "requirement_id":   requirement_id,
             "compliance_proof": "No compliance check required.",
+            "selection_reason": "Highest available supplier rating; shortest lead time breaks ties. Compliance was not requested.",
         }
 
     print(f"  Checking {len(suppliers)} supplier(s) against PDF contracts via RAG...")
@@ -157,14 +148,10 @@ async def run_sourcing_agent(
                 print(f"    NON-COMPLIANT - missing: {check['missing_keywords']}")
         except Exception as e:
             print(f"    [Warning] RAG unavailable for {name}: {e}")
-            # Only use fallback if chromadb is completely missing; otherwise let it fail clean
-            if "No module named" in str(e) or "collection" in str(e).lower():
-                print(f"    Using compliance fallback for {name}.")
-                compliant_suppliers.append({
-                    **s,
-                    "compliance_proof": f"[PDF not indexed yet] {name} passed initial screening.",
-                    "matched_keywords": compliance_keywords,
-                })
+            # Missing or inaccessible evidence must never be treated as compliance.
+            raise RuntimeError(
+                "Supplier compliance is unverified. Restore the contract index and request human review."
+            ) from e
 
     # ------------------------------------------------------------------
     # Step 3: Return best compliant supplier (highest rating)
@@ -173,7 +160,10 @@ async def run_sourcing_agent(
         print("\n  [Agent 1] No compliant suppliers found. Cannot proceed.")
         return None
 
-    best = max(compliant_suppliers, key=lambda s: s.get("rating", 0))
+    best = select_best_supplier(compliant_suppliers)
+    if best is None:
+        print("  Supplier ratings or lead times are incomplete. Human review is required.")
+        return None
 
     print(f"\n  [Agent 1] Best compliant supplier: {best['name']} (rating={best['rating']})")
     print(f"  Compliance proof: \"{best['compliance_proof'][:120]}...\"")
@@ -186,6 +176,7 @@ async def run_sourcing_agent(
         "rating":           best.get("rating", 0),
         "requirement_id":   requirement_id,
         "compliance_proof": best["compliance_proof"],
+        "selection_reason": "Verified contract terms, then highest available supplier rating; shortest lead time breaks ties. Country was not used.",
     }
 
 

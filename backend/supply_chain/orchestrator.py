@@ -89,7 +89,7 @@ async def node_sourcing(state: PipelineState) -> PipelineState:
     except Exception as e:
         elapsed = time.time() - start_time
         print(f"[Timer] node_sourcing failed after {elapsed:.2f} seconds.")
-        return {**state, "status": "failed", "error": f"Sourcing error: {e}", "supplier": None}
+        return {**state, "status": "failed", "error": "Supplier sourcing is unavailable or compliance is unverified. Review the ERP MCP and contract index before continuing.", "supplier": None}
 
 
 # ------------------------------------------------------------------
