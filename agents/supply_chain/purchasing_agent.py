@@ -93,7 +93,7 @@ def _approve_po_in_sqlite(po_id: int, approved_by: str) -> dict:
 # LangChain Tool wrapping MCP
 # ------------------------------------------------------------------
 @tool
-async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total_value: float) -> str:
+async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total_value: float, po_details: dict | None = None) -> str:
     """Drafts a Purchase Order in the ERP system for a given supplier and requirement."""
     from fastmcp import Client
     async with Client(ERP_SERVER) as erp:
@@ -104,6 +104,7 @@ async def draft_po_tool(supplier_id: int, requirement_id: int, qty: float, total
                 "requirement_id": requirement_id,
                 "qty":            qty,
                 "total_value":    total_value,
+                "po_details":     po_details,
             }
         )
         
@@ -146,6 +147,7 @@ async def run_purchasing_agent(
                         "requirement_id": requirement_id,
                         "qty": qty,
                         "total_value": total_value,
+                        "po_details": po_details,
                     }
                 )
             po_data = draft_result.data if hasattr(draft_result, "data") else draft_result
@@ -169,8 +171,12 @@ async def run_purchasing_agent(
             tool_call = msg.tool_calls[0]
             print(f"  [Agent 2] LLM called tool: {tool_call['name']} with args {tool_call['args']}")
 
+            # Inject po_details which the LLM doesn't have in its system prompt
+            tool_args = tool_call['args']
+            tool_args['po_details'] = po_details
+
             # Step 2: Execute tool
-            tool_result = await draft_po_tool.ainvoke(tool_call['args'])
+            tool_result = await draft_po_tool.ainvoke(tool_args)
             po_data = json.loads(tool_result)
 
     if not po_data or "error" in po_data:

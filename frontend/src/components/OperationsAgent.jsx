@@ -2021,7 +2021,7 @@ function generateShades(baseName) {
   const hues = {
     red: 0, orange: 30, yellow: 60, green: 120, teal: 180,
     blue: 215, navy: 230, purple: 270, pink: 330, brown: 25,
-    olive: 80, mint: 150
+    olive: 80, mint: 150, beige: 35, khaki: 45, maroon: 345
   };
   
   const b = baseName.toLowerCase();

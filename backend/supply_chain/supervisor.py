@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv(os.path.join(BASE_DIR, "backend", ".env"))
 
+from backend.supply_chain.security_utils import mask_pii, detect_prompt_injection, validate_output
+
 # ------------------------------------------------------------------
 # Output Schemas
 # ------------------------------------------------------------------
@@ -42,6 +44,15 @@ class SupervisorDecision(BaseModel):
     requirement_id: int = Field(
         description="Map material_type to requirement: trim_vendor=4, dye_house=5, fabric_mill=2."
     )
+    material_name: Optional[str] = Field(
+        default=None, description="The name of the material being ordered (e.g., 'Grey Fleece Fabric', 'YKK Zippers')."
+    )
+    color_base: Optional[str] = Field(
+        default=None, description="The base color extracted from the text (e.g., 'Grey' from 'Grey Fleece Fabric')."
+    )
+    color_spec: Optional[str] = Field(
+        default=None, description="The specific shade if mentioned, otherwise leave empty or match color_base."
+    )
 
 
 # ------------------------------------------------------------------
@@ -53,8 +64,22 @@ def process_chat_message(user_message: str) -> SupervisorDecision:
     Uses ChatGroq to parse the user's natural language intent.
     Routes between Scenario A (Targeted) and Scenario B (Autonomous).
     """
+    # 1. Security Check: Prompt Injection
+    if detect_prompt_injection(user_message):
+        return SupervisorDecision(
+            scenario="unrelated",
+            supplier_name=None,
+            material_type="unknown",
+            qty=300,
+            total_value=0.0,
+            requirement_id=2
+        )
+        
+    # 2. Privacy Check: Mask PII
+    safe_message = mask_pii(user_message)
+
     if ChatGroq is None:
-        return _deterministic_decision(user_message)
+        return _deterministic_decision(safe_message)
 
     try:
         llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0)
@@ -89,11 +114,14 @@ Extract the data strictly according to the schema.
         ])
 
         chain = prompt | structured_llm
-        decision = chain.invoke({"text": user_message})
-        return decision
+        decision = chain.invoke({"text": safe_message})
+        
+        # 3. Responsible AI Check: Validate Output
+        validated_dict = validate_output(decision.model_dump())
+        return SupervisorDecision(**validated_dict)
     except Exception as e:
         print(f"[Supervisor] Groq process_chat_message error: {e}")
-        return _deterministic_decision(user_message)
+        return _deterministic_decision(safe_message)
 
 
 def _deterministic_decision(user_message: str) -> SupervisorDecision:
@@ -115,6 +143,21 @@ def _deterministic_decision(user_message: str) -> SupervisorDecision:
     ]
     supplier_name = next((name for name in supplier_names if name.lower() in text), None)
 
+    # Simple extraction for direct low-stock orders
+    colors = ["grey", "blue", "red", "green", "white", "black", "yellow", "orange", "purple", "pink"]
+    found_color = next((c.capitalize() for c in colors if c in text), None)
+    
+    # Try to extract the item name, e.g. "Order 200 meters of Grey Fleece Fabric"
+    material_name = "Material"
+    if " of " in user_message.lower():
+        material_name = user_message.split(" of ", 1)[-1].strip().title()
+        if " from " in material_name.lower():
+            material_name = material_name.split(" From ", 1)[0].split(" from ", 1)[0]
+    elif "order " in user_message.lower():
+        material_name = user_message.split("order ", 1)[-1].strip().title()
+        if " from " in material_name.lower():
+            material_name = material_name.split(" From ", 1)[0].split(" from ", 1)[0]
+
     if any(word in text for word in ("zipper", "button", "trim", "label", "accessor")):
         material_type = "trim_vendor"
         requirement_id = 4
@@ -135,6 +178,9 @@ def _deterministic_decision(user_message: str) -> SupervisorDecision:
             qty=qty,
             total_value=0,
             requirement_id=2,
+            material_name=None,
+            color_base=None,
+            color_spec=None,
         )
 
     return SupervisorDecision(
@@ -144,6 +190,9 @@ def _deterministic_decision(user_message: str) -> SupervisorDecision:
         qty=qty,
         total_value=total_value,
         requirement_id=requirement_id,
+        material_name=material_name,
+        color_base=found_color,
+        color_spec=found_color,
     )
 
 
@@ -155,12 +204,12 @@ GATHER_SYSTEM_PROMPT = """You are a procurement assistant for a textile supply c
 Collect these fields through a friendly conversation, then return a JSON summary.
 
 FIELDS TO COLLECT (ask only for what is missing, ONE question at a time):
-1. material_type  - map to: "fabric_mill" (cotton/fabric/denim/fleece), "trim_vendor" (zipper/button/trim/label), "dye_house" (dye/dyeing)
-2. material_name  - brief description e.g. "Organic Cotton 180gsm", "YKK Coil Zipper 20cm"
-3. qty            - integer number (e.g. 400)
-4. unit           - meters / pieces / kg / liters / yards
-5. color_base     - Ask the user for the general base color they want (e.g., "White", "Blue", "Green", "Red", "Grey", "Brown").
-6. color_spec     - If color_base is known, ask them to select the exact shade: "Please select the exact shade of {color_base}:"
+1. material_name  - brief description (e.g. "Cotton 180gsm", "YKK Coil Zipper"). Extract this automatically if the user mentions materials like cotton, zippers, dye, etc. If missing, ask "What type of material do you need?".
+2. material_type  - Automatically deduce this from material_name. MUST be one of: "fabric_mill" (for cotton/fabric/denim/fleece), "trim_vendor" (for zipper/button/trim/label), "dye_house" (for dye/dyeing). NEVER ask the user to provide this.
+3. qty            - integer number (e.g. 400). Extract automatically if provided.
+4. unit           - meters / pieces / kg / liters / yards. Extract automatically if provided.
+5. color_base     - Extract this automatically if the user mentions a color in their request (e.g., if they say "Grey Fleece", color_base is "Grey"). ONLY if missing, ask the user: "What base colour do you need? (e.g. White, Blue, Green, Red, Grey)".
+6. color_spec     - Extract this automatically if a specific shade is mentioned. If only color_base is known but not the exact shade, ask them: "Please select the exact shade of {color_base}:"
 
 RULES:
 - Ask exactly ONE question per turn.
@@ -194,6 +243,13 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
         dict with "status": "needs_more_info" + "question",
         or "status": "ready" with all requirements fields.
     """
+    # 1 & 2. Security Check & Privacy Masking on incoming user messages
+    for msg in conversation_history:
+        if msg["role"] == "user":
+            if detect_prompt_injection(msg["content"]):
+                return {"status": "needs_more_info", "question": "I detected a potentially unsafe request. How else can I assist you with procurement?"}
+            msg["content"] = mask_pii(msg["content"])
+
     try:
         from groq import Groq
         client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -220,6 +276,10 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
         if result.get("status") not in ("needs_more_info", "ready"):
             question = result.get("question") or result.get("message") or "Could you provide more details?"
             result = {"status": "needs_more_info", "question": question}
+            
+        # 3. Responsible AI Check: Validate output if ready
+        if result.get("status") == "ready":
+            result = validate_output(result)
 
         return result
 
@@ -346,10 +406,10 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
 
                 if "please select the exact shade" in msg_lower or "please confirm the exact shade" in msg_lower:
                     collected["color_spec"] = next_user.strip().title()
-                elif "what colour or shade do you need" in msg_lower or "what shade name do you need" in msg_lower:
+                elif "what colour or shade do you need" in msg_lower or "what shade name do you need" in msg_lower or "what base colour do you need" in msg_lower:
                     extracted = extract_color(next_user)
                     if extracted:
-                        collected["base_color"] = extracted
+                        collected["color_base"] = extracted
                 elif "what is the fabric width" in msg_lower:
                     if any(w in next_user for w in ("don't know", "dont know", "not sure", "any")):
                         dimensions["width_inches"] = 54
@@ -405,12 +465,6 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
                 prompt = "I can only assist with gathering procurement details right now. " + prompt
             return {"status": "needs_more_info", "question": prompt}
         else:
-            found_color = extract_color(all_text)
-            if found_color:
-                collected["color_base"] = found_color
-                prompt = f"Please select the exact shade of {found_color}:"
-                return {"status": "needs_more_info", "question": prompt}
-            
             prompt = "What base colour do you need? (e.g. White, Blue, Green, Red, Grey)"
             if context_switch_detected:
                 prompt = "I can only assist with gathering procurement details right now. " + prompt

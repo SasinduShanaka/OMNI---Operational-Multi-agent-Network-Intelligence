@@ -557,6 +557,7 @@ def handle_procurement_turn(session_id: str, request: AskRequest):
             destination=decision.get("destination", "Colombo, Sri Lanka"),
             targeted_supplier=selected_supplier.get("name"),
             po_details={
+                "color_base": decision.get("color_base"),
                 "color_spec": decision.get("color_spec"),
                 "material_name": decision.get("material_name"),
             }
