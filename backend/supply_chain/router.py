@@ -773,3 +773,29 @@ async def delete_shipment(shipment_id: int):
     except Exception as e:
         logger.exception("Supply-chain request failed")
         raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
+
+# ------------------------------------------------------------------
+# GET /supply-chain/carriers
+# Returns all available shipping carriers from TMS database
+# ------------------------------------------------------------------
+
+@supply_chain_router.get("/carriers")
+async def list_carriers():
+    """Return all carriers from mock-tms.db."""
+    try:
+        import sys, os
+        DB_DIR = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "database", "supply_chain", "sqlite_db")
+        )
+        sys.path.insert(0, DB_DIR)
+        from db import ensure_tms_db_ready, get_tms_db_connection
+        ensure_tms_db_ready()
+        conn = get_tms_db_connection()
+        rows = conn.execute(
+            "SELECT * FROM carriers ORDER BY mode, rate_per_unit ASC"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.exception("Supply-chain request failed")
+        raise HTTPException(status_code=500, detail="The supply-chain request could not be completed.")
