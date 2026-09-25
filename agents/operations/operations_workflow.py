@@ -572,7 +572,7 @@ def synthesize(state):
         sourcing = _latest(state, "supply_chain") or {}
         count = len(sourcing.get("options", []))
         response = {"agent": "Operations Agent", "intent": "procurement",
-                    "status": "success" if count else "partial",
+                    "status": "init_session",
                     "answer": f"Found {count} compliant supplier option(s). No purchase order was drafted.",
                     "sourcing": sourcing, "procurement": [], "requires_approval": False}
     elif _evidence(state, "report"):

@@ -232,6 +232,65 @@ CRITICAL: Output ONLY valid JSON. No markdown, no code fences, no explanations."
 
 
 
+BASE_COLOR_HEX = {
+    "navy blue": "#1E3A8A", "navy": "#1E3A8A", "royal blue": "#2563EB", 
+    "sky blue": "#7DD3FC", "red": "#EF4444", "maroon": "#7F1D1D", 
+    "green": "#22C55E", "olive": "#4D7C0F", "white": "#F8FAFC", 
+    "off white": "#F1F5F9", "black": "#0F172A", "grey": "#64748B", 
+    "gray": "#64748B", "beige": "#F5F5DC", "khaki": "#F0E68C",
+    "yellow": "#EAB308", "orange": "#F97316", "purple": "#A855F7",
+    "pink": "#EC4899", "natural": "#FDFBF7", "undyed": "#FDFBF7",
+    "organic": "#FDFBF7"
+}
+
+KNOWN_COLORS = tuple(BASE_COLOR_HEX.keys())
+
+def generate_color_gradient(base_name: str) -> list:
+    base_hex = BASE_COLOR_HEX.get(base_name.lower(), "#94A3B8")
+    
+    # Parse hex
+    hex_code = base_hex.lstrip('#')
+    r, g, b = tuple(int(hex_code[i:i+2], 16)/255.0 for i in (0, 2, 4))
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    
+    def to_hex(r, g, b):
+        return '#{:02x}{:02x}{:02x}'.format(int(r*255), int(g*255), int(b*255))
+        
+    shades = []
+    # 5 Lighter (from lightest to standard)
+    for i in range(5, 0, -1):
+        lightness = min(0.96, l + (0.98 - l) * (i / 6.0))
+        nr, ng, nb = colorsys.hls_to_rgb(h, lightness, s)
+        shades.append({"name": f"Light {base_name} {6-i}", "hex": to_hex(nr, ng, nb)})
+        
+    # Standard
+    shades.append({"name": f"Standard {base_name}", "hex": base_hex})
+    
+    # 5 Darker (from standard to darkest)
+    for i in range(1, 6):
+        lightness = max(0.04, l * (1 - (i / 6.0)))
+        nr, ng, nb = colorsys.hls_to_rgb(h, lightness, s)
+        shades.append({"name": f"Dark {base_name} {i}", "hex": to_hex(nr, ng, nb)})
+        
+    return shades
+
+def extract_color(text: str) -> str:
+    for c in KNOWN_COLORS:
+        if c in text:
+            c_idx = text.find(c)
+            prefix = text[:c_idx].strip().split()
+            if prefix and prefix[-1] in ("not", "except", "but", "non", "without"):
+                continue
+            return c.title()
+    return None
+
+def is_context_switch(text: str) -> bool:
+    if "?" in text: return True
+    first_word = text.split()[0] if text.split() else ""
+    if first_word in ("what", "how", "can", "why", "where", "who", "wait"): return True
+    return False
+
+
 def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     Multi-turn requirements gathering using Groq LLM.
@@ -277,6 +336,19 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
             question = result.get("question") or result.get("message") or "Could you provide more details?"
             result = {"status": "needs_more_info", "question": question}
             
+        if result.get("status") == "needs_more_info":
+            q_lower = result.get("question", "").lower()
+            if "shade of " in q_lower:
+                m = re.search(r'shade of ([a-zA-Z\s]+)[\:\?]', result.get("question", ""))
+                if m:
+                    base = m.group(1).strip()
+                    result["shades"] = generate_color_gradient(base)
+            elif "shade" in q_lower:
+                all_text = " ".join(msg["content"] for msg in conversation_history if msg["role"] == "user").lower()
+                extracted = extract_color(all_text)
+                if extracted:
+                    result["shades"] = generate_color_gradient(extracted)
+            
         # 3. Responsible AI Check: Validate output if ready
         if result.get("status") == "ready":
             result = validate_output(result)
@@ -296,6 +368,7 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
 
     collected: Dict[str, Any] = {}
     dimensions: Dict[str, Any] = {}
+    context_switch_detected = False
 
     # ── material_type detection (extended for 25 products) ─────────────────
     fabric_words   = ("fabric", "cotton", "cloth", "denim", "fleece", "lining", "interlining",
@@ -332,65 +405,7 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
             collected["unit"] = plural
             break
 
-    BASE_COLOR_HEX = {
-        "navy blue": "#1E3A8A", "navy": "#1E3A8A", "royal blue": "#2563EB", 
-        "sky blue": "#7DD3FC", "red": "#EF4444", "maroon": "#7F1D1D", 
-        "green": "#22C55E", "olive": "#4D7C0F", "white": "#F8FAFC", 
-        "off white": "#F1F5F9", "black": "#0F172A", "grey": "#64748B", 
-        "gray": "#64748B", "beige": "#F5F5DC", "khaki": "#F0E68C",
-        "yellow": "#EAB308", "orange": "#F97316", "purple": "#A855F7",
-        "pink": "#EC4899", "natural": "#FDFBF7", "undyed": "#FDFBF7",
-        "organic": "#FDFBF7"
-    }
-    
-    KNOWN_COLORS = tuple(BASE_COLOR_HEX.keys())
-
-    def generate_color_gradient(base_name: str) -> list:
-        base_hex = BASE_COLOR_HEX.get(base_name.lower(), "#94A3B8")
-        
-        # Parse hex
-        hex_code = base_hex.lstrip('#')
-        r, g, b = tuple(int(hex_code[i:i+2], 16)/255.0 for i in (0, 2, 4))
-        h, l, s = colorsys.rgb_to_hls(r, g, b)
-        
-        def to_hex(r, g, b):
-            return '#{:02x}{:02x}{:02x}'.format(int(r*255), int(g*255), int(b*255))
-            
-        shades = []
-        # 5 Lighter (from lightest to standard)
-        for i in range(5, 0, -1):
-            lightness = min(0.96, l + (0.98 - l) * (i / 6.0))
-            nr, ng, nb = colorsys.hls_to_rgb(h, lightness, s)
-            shades.append({"name": f"Light {base_name} {6-i}", "hex": to_hex(nr, ng, nb)})
-            
-        # Standard
-        shades.append({"name": f"Standard {base_name}", "hex": base_hex})
-        
-        # 5 Darker (from standard to darkest)
-        for i in range(1, 6):
-            lightness = max(0.04, l * (1 - (i / 6.0)))
-            nr, ng, nb = colorsys.hls_to_rgb(h, lightness, s)
-            shades.append({"name": f"Dark {base_name} {i}", "hex": to_hex(nr, ng, nb)})
-            
-        return shades
-
-    def extract_color(text: str) -> str:
-        for c in KNOWN_COLORS:
-            if c in text:
-                c_idx = text.find(c)
-                prefix = text[:c_idx].strip().split()
-                if prefix and prefix[-1] in ("not", "except", "but", "non", "without"):
-                    continue
-                return c.title()
-        return None
-
-    def is_context_switch(text: str) -> bool:
-        if "?" in text: return True
-        first_word = text.split()[0] if text.split() else ""
-        if first_word in ("what", "how", "can", "why", "where", "who", "wait"): return True
-        return False
-
-    context_switch_detected = False
+    # Removed color utilities to global scope
 
     # ── Replay conversation for context-dependent answers ─────────────────
     for i in range(len(conversation_history)):
@@ -463,7 +478,7 @@ def _deterministic_gather(conversation_history: List[Dict[str, str]]) -> Dict[st
             prompt = f"Please select the exact shade of {base}:"
             if context_switch_detected:
                 prompt = "I can only assist with gathering procurement details right now. " + prompt
-            return {"status": "needs_more_info", "question": prompt}
+            return {"status": "needs_more_info", "question": prompt, "shades": generate_color_gradient(base)}
         else:
             prompt = "What base colour do you need? (e.g. White, Blue, Green, Red, Grey)"
             if context_switch_detected:
