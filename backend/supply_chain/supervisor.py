@@ -232,6 +232,18 @@ CRITICAL: Output ONLY valid JSON. No markdown, no code fences, no explanations."
 
 
 
+def safe_procurement_history(conversation_history: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Exclude rejected user turns and their replies from future requirements."""
+    safe_history = []
+    rejected_turn = False
+    for msg in conversation_history:
+        if msg["role"] == "user":
+            rejected_turn = detect_prompt_injection(msg["content"])
+        if not rejected_turn:
+            safe_history.append({**msg, "content": mask_pii(msg["content"])})
+    return safe_history
+
+
 def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     Multi-turn requirements gathering using Groq LLM.
@@ -243,12 +255,11 @@ def gather_requirements(conversation_history: List[Dict[str, str]]) -> Dict[str,
         dict with "status": "needs_more_info" + "question",
         or "status": "ready" with all requirements fields.
     """
-    # 1 & 2. Security Check & Privacy Masking on incoming user messages
-    for msg in conversation_history:
-        if msg["role"] == "user":
-            if detect_prompt_injection(msg["content"]):
-                return {"status": "needs_more_info", "question": "I detected a potentially unsafe request. How else can I assist you with procurement?"}
-            msg["content"] = mask_pii(msg["content"])
+    latest_user = next((msg for msg in reversed(conversation_history) if msg["role"] == "user"), None)
+    if latest_user and detect_prompt_injection(latest_user["content"]):
+        return {"status": "needs_more_info", "security_blocked": True,
+                "question": "I can't follow instructions that bypass procurement safeguards. Please provide your material requirements."}
+    conversation_history = safe_procurement_history(conversation_history)
 
     try:
         from groq import Groq

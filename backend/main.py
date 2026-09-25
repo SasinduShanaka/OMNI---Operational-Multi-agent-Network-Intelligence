@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime, timezone
@@ -621,8 +622,18 @@ def _start_contextual_procurement(session_id: str, materials: list[dict]) -> dic
             "requires_approval": False}
 
 
+def is_procurement_topic_change(message: str) -> bool:
+    """Recognize standalone business questions, not short requirements answers."""
+    return bool(re.search(
+        r"\b(?:can we|could we|should we|is it possible to)\b.*\b(?:accept|make|produce|manufacture|fulfill|deliver)\b"
+        r"|\b(?:compare|show|list|check)\b.*\b(?:supplier lead times|purchase orders|production lines|production orders|inventory)\b"
+        r"|\b(?:forecast demand|demand forecast|inventory health|total inventory)\b",
+        message, re.IGNORECASE,
+    ))
+
+
 def handle_procurement_turn(session_id: str, request: AskRequest):
-    from backend.supply_chain.supervisor import gather_requirements
+    from backend.supply_chain.supervisor import gather_requirements, safe_procurement_history
     from backend.supply_chain.orchestrator import start_pipeline
     import asyncio
     
@@ -639,8 +650,15 @@ def handle_procurement_turn(session_id: str, request: AskRequest):
     
     # ── PHASE: gathering ──
     if session["phase"] == "gathering":
-        session["history"].append({"role": "user", "content": user_message})
-        decision = gather_requirements(session["history"])
+        history = safe_procurement_history(session["history"])
+        proposed_history = [*history, {"role": "user", "content": user_message}]
+        decision = gather_requirements(proposed_history)
+        if decision.get("security_blocked"):
+            session["history"] = history
+            return {"agent": "Operations Agent", "intent": "security_boundary",
+                    "status": "blocked", "answer": decision["question"],
+                    "workflow": ["Operations Agent", "Security Boundary"]}
+        session["history"] = safe_procurement_history(proposed_history)
         
         if decision.get("status") in ("needs_more_info", "needs_shade_selection"):
             assistant_reply = decision.get("question", "Could you provide more details?")
@@ -861,6 +879,15 @@ def _process_ask(request: AskRequest):
             return process_request(request.message)
 
         context = get_context(session_id, user_id)
+        if is_procurement_topic_change(request.message):
+            session = procurement_sessions.get(session_id)
+            if session and session.get("owner_id") and session["owner_id"] != user_id:
+                raise HTTPException(status_code=403, detail="This procurement session belongs to another user.")
+            if session and session.get("phase") == "gathering":
+                procurement_sessions.pop(session_id)
+            if context and context.pending_material_selection:
+                clear_pending_material_selection(session_id, user_id)
+                context = get_context(session_id, user_id)
         pending_selection = resolve_pending_material_selection(request.message, context)
         if pending_selection:
             if pending_selection["status"] == "cancelled":

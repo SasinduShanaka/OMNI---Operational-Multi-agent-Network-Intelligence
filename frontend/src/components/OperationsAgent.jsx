@@ -281,9 +281,14 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
           {messages.length > 0 && (
             <button
               onClick={() => {
-                updateChatState({ messages: [], error: '', draft: '' })
+                const newSessionId = crypto.randomUUID()
+                setSessionId(newSessionId)
+                setRequestId(null)
+                setProgress(null)
+                updateChatState({ sessionId: newSessionId, messages: [], error: '', draft: '' })
                 focusChatComposer(composerRef.current, false)
               }}
+              disabled={isAsking}
               className="rounded-lg border border-white/70 bg-white/90 px-3 py-2 text-[11px] font-medium text-slate-700 backdrop-blur-md transition hover:bg-white"
             >
               New conversation
