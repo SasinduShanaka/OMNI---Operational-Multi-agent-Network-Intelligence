@@ -1,8 +1,0 @@
- binom       -- Binomial coefficient
-   diric       -- Periodic sinc function, also called the Dirichlet kernel.
-   euler       -- Euler numbers E0..En (inclusive).
-   expn        -- Exponential integral E_n.
-   exp1        -- Exponential integral E_1 of complex argument z.
-   expi        -- Exponential integral Ei.
-   factorial   -- The factorial of a number or array of numbers.
-   factorial2  --
