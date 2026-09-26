@@ -178,7 +178,7 @@ class PlanningTests(unittest.TestCase):
         # Match the repository's function-isolation approach without importing live providers.
         import ast
         source = ast.parse((ROOT / "agents/operations/operations_agent.py").read_text(encoding="utf-8"))
-        names = {"_node_procurement_evidence", "_node_synthesize_plan", "_material_type_for_shortage", "_extract_date"}
+        names = {"_node_procurement_evidence", "_node_synthesize_plan", "_material_type_for_shortage", "_extract_date", "_extract_color"}
         tree = ast.Module(body=[node for node in source.body if isinstance(node, ast.FunctionDef) and node.name in names], type_ignores=[])
         import re
         cls.namespace = {"OperationsState": dict, "datetime": datetime, "re": re,
