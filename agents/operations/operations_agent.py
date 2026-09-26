@@ -2354,7 +2354,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                     requirement_id=requirement_id,
                     qty=qty,
                     total_value=qty * unit_cost,
-                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                    compliance_keywords=[],
                     destination="Colombo, LK",
                     po_details={
                         "material_code": item.get("material_code"),
@@ -2377,7 +2377,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                 supplier = asyncio.run(run_sourcing_agent(
                     material_type=material_type,
                     requirement_id=requirement_id,
-                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                    compliance_keywords=[],
                 ))
                 supply_chain_results.append({
                     "material": item,
@@ -2429,7 +2429,10 @@ def _node_synthesize_low_stock_procurement(state: OperationsState) -> Operations
         result for result in procurement
         if result.get("supplier") or (result.get("run") or {}).get("supplier")
     ]
-    failed = [result for result in procurement if result.get("error")]
+    failed = [
+        result for result in procurement
+        if result.get("error") or (result.get("run") or {}).get("status") == "failed"
+    ]
 
     if mode == "order":
         drafted = [
@@ -2467,13 +2470,20 @@ def _node_synthesize_low_stock_procurement(state: OperationsState) -> Operations
     if failed:
         answer += f" {len(failed)} item(s) need manual review because supplier lookup failed."
 
+    if failed and len(failed) == len(procurement):
+        response_status = "failed"
+    elif failed:
+        response_status = "partial_success"
+    else:
+        response_status = "success"
+
     response = {
         "agent": "Operations Agent",
         "task": "Low Stock Supply Chain Coordination",
         "delegated_to": "Supply Chain Agent",
         "llm_used": client is not None,
         "intent": "low_stock_procurement",
-        "status": "success",
+        "status": response_status,
         "workflow": ["Operations Agent", "Inventory Agent", "Supply Chain Agent"],
         "answer": answer,
         "results": inventory,
