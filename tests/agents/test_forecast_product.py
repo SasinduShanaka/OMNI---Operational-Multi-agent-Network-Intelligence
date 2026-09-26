@@ -28,6 +28,8 @@ class ProductSelectionTests(unittest.TestCase):
         result = resolve_forecast_product('Compare predicted demand with actual demand last month for black polo', PRODUCTS)
         self.assertEqual(result['sku'], 'GAR-001')
         self.assertEqual(result['mode'], 'comparison')
+        result = resolve_forecast_product('Compare predicted demand with actual demand last month for all products. Which forecasts were least accurate and why?', PRODUCTS)
+        self.assertEqual(result, {'status': 'all', 'mode': 'comparison'})
 
     def test_month_horizons_and_invalid_ranges(self):
         for duration in ['three months', '3 months', '3-month']:
@@ -38,6 +40,18 @@ class ProductSelectionTests(unittest.TestCase):
         result = resolve_forecast_product('Forecast t-shirt demand for six months', PRODUCTS)
         self.assertEqual(result['periods'], 6)
         self.assertEqual(result['status'], 'ambiguous')
+
+    def test_growth_ranking_question_uses_all_products_and_quarter_horizon(self):
+        result = resolve_forecast_product('Which products have the highest forecasted demand growth next quarter?', PRODUCTS)
+        self.assertEqual(result, {'status': 'all', 'mode': 'growth_ranking', 'periods': 3})
+
+    def test_demand_ranking_supports_highest_lowest_and_custom_horizon(self):
+        result = resolve_forecast_product('What are the highest and lowest demand products for the next 6 months?', PRODUCTS)
+        self.assertEqual(result, {'status': 'all', 'mode': 'demand_ranking', 'ranking': 'both', 'periods': 6})
+        self.assertEqual(
+            resolve_forecast_product('Which product has the lowest forecast demand next month?', PRODUCTS),
+            {'status': 'all', 'mode': 'demand_ranking', 'ranking': 'lowest'},
+        )
 
     def test_shirt_category_includes_polos_and_tshirts(self):
         for question in ['Forecast Shirt demand.', 'Forecast shirts demand']:
@@ -73,6 +87,25 @@ class ProductSelectionTests(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertEqual(resolve_forecast_product(question, PRODUCTS), {'status': 'matched', 'sku': sku})
 
+    def test_every_catalog_name_accepts_case_and_camel_case(self):
+        for product in PRODUCTS:
+            name = product['product_name']
+            camel_case = re.sub(r"[^A-Za-z0-9]+", " ", name).title().replace(" ", "")
+            for variant in (name.lower(), name.upper(), camel_case):
+                with self.subTest(sku=product['sku'], variant=variant):
+                    self.assertEqual(
+                        resolve_forecast_product(f'Predict demand for {variant}', PRODUCTS)['sku'],
+                        product['sku'],
+                    )
+
+    def test_product_codes_accept_common_input_formats(self):
+        for product in PRODUCTS:
+            number = product['sku'].split('-')[1]
+            for variant in (product['sku'].lower(), f'GAR{number}', f'GAR {number}', f'gar_{number}'):
+                with self.subTest(sku=product['sku'], variant=variant):
+                    self.assertEqual(resolve_forecast_product(f'Forecast demand for {variant}', PRODUCTS),
+                                     {'status': 'matched', 'sku': product['sku']})
+
     def test_shared_garment_name_does_not_choose_arbitrarily(self):
         result = resolve_forecast_product('forecast t-shirt demand', PRODUCTS)
         self.assertEqual(result['status'], 'ambiguous')
@@ -84,6 +117,14 @@ class ProductSelectionTests(unittest.TestCase):
         for question in ["predict next month black polo shirts demand", "Forecast demand for Classic Black Polo", "black polos demand", "Black Polo shirt's demand next month"]:
             with self.subTest(question=question):
                 self.assertEqual(resolve_forecast_product(question, PRODUCTS), {"status": "matched", "sku": "GAR-001"})
+
+    def test_explanatory_forecast_request_keeps_product_name(self):
+        question = ('Forecast demand for Classic Black Polo for the next 6 months '
+                    'and explain the trend, confidence, and key drivers.')
+        self.assertEqual(
+            resolve_forecast_product(question, PRODUCTS),
+            {"status": "matched", "sku": "GAR-001", "periods": 6},
+        )
 
     def test_other_names_and_codes(self):
         self.assertEqual(resolve_forecast_product("white cotton t shirts demand", PRODUCTS)["sku"], "GAR-002")
@@ -127,6 +168,18 @@ class ProductSelectionTests(unittest.TestCase):
         forecast.reset_mock()
         namespace['_execute_specialist_request']('Forecast black polo demand for the next three months')
         forecast.assert_called_once_with('GAR-001', periods=3)
+        forecast.reset_mock()
+        forecast.return_value = {
+            "status": "success", "forecast": 1200, "product_name": "Classic Black Polo", "sku": "GAR-001",
+            "forecast_period": "2026-10-01", "trend": "Increasing", "trend_per_period": 25,
+            "history_points": 7, "accuracy": {"accuracy_percent": 90, "test_points": 5},
+            "recommendation": "Plan capacity.", "model_components": {"level": 1175}, "predictions": [],
+        }
+        explained = namespace['_execute_specialist_request'](
+            'Forecast demand for Classic Black Polo and explain the trend, confidence, and key drivers')
+        self.assertIn('Explanation', explained['answer'])
+        self.assertIn('Confidence: moderate', explained['answer'])
+        self.assertIn('Key drivers:', explained['answer'])
         forecast.reset_mock()
         result = namespace['_execute_specialist_request']('predict red polo shirts demand')
         self.assertEqual(result['status'], 'needs_information')
