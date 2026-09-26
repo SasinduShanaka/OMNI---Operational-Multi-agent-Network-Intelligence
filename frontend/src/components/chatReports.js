@@ -27,8 +27,24 @@ export function isReportNavigationRequest(text) {
   return /\breports?\b/i.test(text) && /\b(schedule|scheduled|daily|monthly|history|saved|previous reports)\b/i.test(text)
 }
 
+// A product picker is only a request for the information needed to make a
+// forecast. It is not useful report content and must never produce a PDF.
+export function hasReportContent(data) {
+  if (!data || data.status === 'needs_information' || data.suggested_products?.length) return false
+  return Boolean(
+    data.sections ||
+    data.result ||
+    data.data ||
+    data.comparisons?.length ||
+    data.results?.length
+  )
+}
+
 export function reportSource(messages) {
-  const previous = [...messages].reverse().find((item) => item.type === 'agent' && item.data && (item.data.reportSource || !['report_download', 'report_navigation', 'unknown'].includes(item.data.intent)))
+  const previous = [...messages].reverse().find((item) => item.type === 'agent' && item.data && (
+    item.data.reportSource ||
+    (!['report_download', 'report_navigation', 'unknown'].includes(item.data.intent) && hasReportContent(item.data))
+  ))
   return previous?.data?.reportSource || previous?.data
 }
 

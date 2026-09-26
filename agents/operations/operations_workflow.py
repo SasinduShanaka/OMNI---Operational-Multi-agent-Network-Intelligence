@@ -88,6 +88,8 @@ def _goal(state):
         "material_name": d.get("material_name"), "material_code": d.get("material_code"),
         "draft_authorized": explicit_order,
         "forecast_requested": bool(re.search(r"\b(?:forecast|demand|trend|predict)\b", text)),
+        "forecast_concepts_requested": bool(re.search(
+            r"\b(?:predicted demand|actual demand|forecast error|absolute error|forecast accuracy|data[- ]quality|unreliable forecast|forecast unreliable|forecast wrong|forecast inaccurate)\b", text)),
         "knowledge_requested": bool(re.search(r"\b(?:sop|policy|contract|market context)\b", text)),
     }
 
@@ -169,6 +171,8 @@ def _candidates(state):
         return (["supply_chain"] if not _evidence(state, "supply_chain") else ["finish"]), []
     if objective == "demand_forecast":
         return (["forecast"] if not _evidence(state, "forecast") else ["finish"]), []
+    if objective == "forecast_concepts":
+        return ["finish"], []
     if objective in _ops().INVENTORY_INTENTS:
         return (["inventory"] if not _evidence(state, "inventory") else ["finish"]), []
     if objective in _ops().PRODUCTION_INTENTS:
@@ -572,7 +576,7 @@ def synthesize(state):
         sourcing = _latest(state, "supply_chain") or {}
         count = len(sourcing.get("options", []))
         response = {"agent": "Operations Agent", "intent": "procurement",
-                    "status": "success" if count else "partial",
+                    "status": "init_session",
                     "answer": f"Found {count} compliant supplier option(s). No purchase order was drafted.",
                     "sourcing": sourcing, "procurement": [], "requires_approval": False}
     elif _evidence(state, "report"):
@@ -588,6 +592,17 @@ def synthesize(state):
                     "status": "success" if passages else "partial",
                     "answer": f"Found {len(passages)} relevant knowledge passage(s)." if passages else "I could not verify relevant knowledge passages.",
                     "result": knowledge, "requires_approval": False}
+    elif goal.get("forecast_concepts_requested"):
+        data_quality_question = bool(re.search(r"\b(?:data[- ]quality|unreliable|unreliab|inaccurate|accuracy|wrong)\b", state["user_request"], re.I))
+        response = {"agent": "Operations Agent", "intent": "forecast_concepts",
+                    "status": "success",
+                    "answer": (("Forecasts can be unreliable when the input data is incomplete, inaccurate, inconsistent, or not representative of the period being forecast. Common issues include missing sales records, duplicate transactions, incorrect quantities or dates, inconsistent product IDs or units, stockouts that hide true demand, returns or cancellations handled inconsistently, stale data, and sudden changes in promotions, pricing, seasonality, or product mix. "
+                               "Check data coverage and definitions first, then compare forecast errors across products and time periods; a forecast is an estimate, and these checks do not establish that any specific issue occurred in your data.") if data_quality_question else ("Predicted demand is the model’s estimate of how many units customers will buy in a future period. "
+                               "Actual demand is the number of units actually requested or sold in that period, based on the system’s chosen measure. "
+                               "Forecast error is the signed difference between actual and predicted demand (actual minus predicted); a positive value means demand was underestimated, and a negative value means it was overestimated. "
+                               "Absolute error is the size of that difference without its sign: |actual demand − predicted demand|. "
+                               "For example, if predicted demand is 100 units and actual demand is 120, the forecast error is +20 units and the absolute error is 20 units.")),
+                    "requires_approval": False}
     elif not response:
         response = {"agent": "Operations Agent", "intent": state["decision"].get("intent"),
                     "status": "partial", "answer": "I do not have enough verified evidence to answer that request."}

@@ -85,8 +85,24 @@ class SupervisorTests(unittest.TestCase):
              patch("backend.supply_chain.orchestrator.start_pipeline", side_effect=draft) as purchase:
             result = ops.process_request("Prepare purchase orders for low stock materials")
         purchase.assert_called_once()
+        self.assertEqual(purchase.call_args.kwargs["compliance_keywords"], [])
         self.assertTrue(result["requires_approval"])
         self.assertEqual(result["procurement"][0]["run"]["status"], "awaiting_approval")
+
+    def test_failed_low_stock_runs_report_failure(self):
+        item = {"material_code": "FAB-001", "material_name": "Black Cotton Fabric",
+                "shortage": 200, "unit": "meters"}
+
+        async def fail(**kwargs):
+            return {"status": "failed", "error": "Supplier sourcing unavailable", "supplier": None}
+
+        with patch.object(ops, "get_low_stock", return_value=[item]), \
+             patch("backend.supply_chain.orchestrator.start_pipeline", side_effect=fail):
+            result = ops.process_request("Prepare purchase orders for low stock materials")
+
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["requires_approval"])
+        self.assertIn("manual review", result["answer"])
 
     def test_supervisor_limit(self):
         from agents.operations.operations_workflow import supervisor

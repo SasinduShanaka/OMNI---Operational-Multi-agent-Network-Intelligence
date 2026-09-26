@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { supplyChainApi } from '../api/supplyChainApi'
-import { createChatReportPreview, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
+import { createChatReportPreview, hasReportContent, isReportRequest, isFollowupReport, reportSource, reportQuery, isManagementReportRequest, isReportNavigationRequest, managementReportScope } from './chatReports'
 import ManagementReport from './ManagementReport'
 import ForecastPdfPreview from './ForecastPdfPreview'
 import { ScenePage } from './FactoryScene'
@@ -165,7 +165,15 @@ function OperationsAgent({ chatState, setChatState, setActivePage, setScQuery })
         window.dispatchEvent(new Event('omni:purchase-order-updated'))
       }
 
-      if (isReportRequest(userMessage) && data.intent !== 'unknown') {
+      const reportWasRequested = isReportRequest(userMessage) && data.intent !== 'unknown'
+
+      // A picker has no forecast data to export. Keep the request so the
+      // selected product can create the report once its forecast is ready.
+      if (reportWasRequested && !hasReportContent(data) && data.suggested_products?.length) {
+        data.reportPending = true
+      }
+
+      if (reportWasRequested && hasReportContent(data)) {
         data.reportRequested = true
       }
 
@@ -706,14 +714,14 @@ function AgentResponse({ data, setActivePage, handleSend, isLatest, isAsking }) 
           <p className="mb-3 text-sm font-semibold text-slate-700">{data.forecast_mode === 'comparison' ? 'Choose products to compare' : 'Choose a product to forecast'}</p>
           <div className="flex flex-wrap gap-3">
             <button type="button" disabled={isAsking}
-              onClick={() => handleSend(data.forecast_mode === 'comparison' ? 'Compare predicted demand with actual demand last month for all products' : `Forecast demand for all products for the next ${data.forecast_periods || 1} months`)}
+              onClick={() => handleSend(data.forecast_mode === 'comparison' ? `Compare predicted demand with actual demand last month for all products${data.reportPending ? ' as a PDF report' : ''}` : `Forecast demand for all products for the next ${data.forecast_periods || 1} months${data.reportPending ? ' as a PDF report' : ''}`)}
               className="rounded-xl border border-blue-700 bg-blue-700 px-4 py-3 text-left text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
               <span className="block text-sm font-semibold">All products</span>
               <span className="mt-1 block text-xs text-blue-100">Entire product catalog</span>
             </button>
             {data.suggested_products.map((product) => (
               <button key={product.sku} type="button" disabled={isAsking}
-                onClick={() => handleSend(data.forecast_mode === 'comparison' ? `Compare predicted demand with actual demand last month for ${product.product_name} (${product.sku})` : `Forecast demand for ${product.product_name} (${product.sku}) for the next ${data.forecast_periods || 1} months`)}
+                onClick={() => handleSend(data.forecast_mode === 'comparison' ? `Compare predicted demand with actual demand last month for ${product.product_name} (${product.sku})${data.reportPending ? ' as a PDF report' : ''}` : `Forecast demand for ${product.product_name} (${product.sku}) for the next ${data.forecast_periods || 1} months${data.reportPending ? ' as a PDF report' : ''}`)}
                 className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition hover:border-blue-500 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
                 <span className="block text-sm font-semibold text-blue-900">{product.product_name}</span>
                 <span className="mt-1 block text-xs text-blue-600">{product.sku}</span>
@@ -736,7 +744,7 @@ function AgentResponse({ data, setActivePage, handleSend, isLatest, isAsking }) 
 
       {data.sections && <div className="mt-4"><ManagementReport report={data} compact /></div>}
 
-      {(data.reportRequested || data.intent === 'report_download') && data.intent !== 'unknown' && (data.reportSource || (data.intent !== 'report_download' && data.answer)) && (
+      {(data.reportRequested || data.intent === 'report_download') && data.intent !== 'unknown' && hasReportContent(data.reportSource || data) && (
         <ReportDownload data={data.reportSource || data} requested={data.reportRequested || data.intent === 'report_download'} />
       )}
 

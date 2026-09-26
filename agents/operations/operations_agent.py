@@ -1080,6 +1080,18 @@ def _execute_specialist_request(user_request: str):
     # --------------------------------------------------------
 
     normalized_request = user_request.lower()
+    def requested_forecast_periods():
+        words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                 "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+        if re.search(r'\b(?:next|this|coming)\s+quarter\b', normalized_request):
+            return 3
+        if re.search(r'\b(?:next|this|coming)\s+year\b', normalized_request):
+            return 12
+        match = re.search(r'\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*[- ]?\s*months?\b', normalized_request)
+        if not match:
+            return 1
+        value = int(match.group(1)) if match.group(1).isdigit() else words[match.group(1)]
+        return value if 1 <= value <= 12 else 1
     forecast_phrases = (
         "forecast",
         "forcast",
@@ -1095,10 +1107,33 @@ def _execute_specialist_request(user_request: str):
         re.search(r'\bGAR-\d{3}\b', user_request, re.IGNORECASE)
         and any(phrase in normalized_request for phrase in ("next month", "future", "will we need", "expected units"))
     )
+    stockout_risk_question = (
+        any(phrase in normalized_request for phrase in ("stockout", "stock out", "stock-out", "shortage risk"))
+        and any(phrase in normalized_request for phrase in ("forecast", "demand", "predict"))
+        and any(phrase in normalized_request for phrase in ("fabric", "material", "inventory", "stock"))
+    )
+    forecast_reorder_question = (
+        any(phrase in normalized_request for phrase in ("reorder", "re-order", "replenish", "need to buy"))
+        and any(phrase in normalized_request for phrase in ("material", "materials", "fabric", "inventory", "stock"))
+        and any(phrase in normalized_request for phrase in ("forecast", "demand", "predict"))
+    )
+    demand_scenario_question = (
+        bool(re.search(r'\b(?:increase|decrease|rise|drop)\w*\s+by\s+\d+(?:\.\d+)?\s*%', normalized_request))
+        and "demand" in normalized_request
+        and any(phrase in normalized_request for phrase in ("fabric", "inventory", "capacity", "production"))
+    )
 
+    # Cross-agent stockout questions must be identified before the general
+    # forecast route, which otherwise only returns a demand prediction.
+    if stockout_risk_question:
+        decision = {"intent": "stockout_risk"}
+    elif demand_scenario_question:
+        decision = {"intent": "demand_scenario"}
+    elif forecast_reorder_question:
+        decision = {"intent": "forecast_material_reorder"}
     # Forecast questions have a deterministic route and do not need an LLM
     # classification step before being delegated to the Forecast Agent.
-    if any(phrase in normalized_request for phrase in forecast_phrases) or planning_question:
+    elif any(phrase in normalized_request for phrase in forecast_phrases) or planning_question:
         decision = {
             "intent": "demand_forecast",
             "material_name": None,
@@ -1121,6 +1156,138 @@ def _execute_specialist_request(user_request: str):
     product_name = decision.get("product_name")
     sku = decision.get("sku")
     required_date = decision.get("required_date")
+
+    if intent == "demand_scenario":
+        try:
+            products = get_forecast_products()
+            selection = resolve_forecast_product(user_request, products)
+            if selection.get("status") not in {"matched", "all"}:
+                return {"intent": intent, "status": "needs_information", "delegated_to": "Forecast Agent",
+                        "answer": selection.get("message", "Please provide one product name or SKU for the scenario.")}
+            change = re.search(r'\b(increase|decrease|rise|drop)\w*\s+by\s+(\d+(?:\.\d+)?)\s*%', normalized_request)
+            direction, percent = change.group(1), float(change.group(2))
+            multiplier = 1 + percent / 100 if direction in {"increase", "rise"} else 1 - percent / 100
+            if selection.get("status") == "all":
+                scenarios = []
+                for baseline in forecast_all_demand(periods=1):
+                    quantity = round(max(0, baseline["forecast"] * multiplier), 2)
+                    bom = get_product_materials(sku=baseline["sku"], quantity=quantity)
+                    shortages = [item for item in bom.get("materials", [])
+                                 if float(item.get("available_quantity") or 0) < float(item.get("required_quantity") or 0)]
+                    production = check_production_feasibility(sku=baseline["sku"], quantity=quantity,
+                                                              required_date=baseline["forecast_period"])
+                    scenarios.append({"sku": baseline["sku"], "product_name": baseline["product_name"],
+                                      "baseline_forecast": baseline["forecast"], "scenario_quantity": quantity,
+                                      "shortages": shortages, "production_status": production.get("status", "unavailable")})
+                summary = "; ".join(
+                    f"{item['product_name']} ({item['sku']}): {item['scenario_quantity']:,.2f} units, "
+                    f"{len(item['shortages'])} material shortage(s), capacity {item['production_status']}"
+                    for item in scenarios
+                )
+                return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent / Production Agent",
+                        "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent", "Production Agent"],
+                        "answer": f"All-product scenario: demand {direction}s by {percent:g}%. {summary}.", "results": scenarios}
+            baseline = forecast_demand(selection["sku"], periods=1)
+            if baseline.get("status") != "success":
+                return {"intent": intent, "status": "error", "delegated_to": "Forecast Agent", "answer": baseline.get("message", "Unable to create the baseline forecast.")}
+            scenario_quantity = round(max(0, baseline["forecast"] * multiplier), 2)
+            bom = get_product_materials(sku=selection["sku"], quantity=scenario_quantity)
+            production = check_production_feasibility(sku=selection["sku"], quantity=scenario_quantity,
+                                                      required_date=baseline["forecast_period"])
+            material_impact = "; ".join(
+                f"{item.get('material_name') or item.get('material_code')}: need {item.get('required_quantity', 0):,.2f} {item.get('unit', 'units')}, available {item.get('available_quantity', 0):,.2f}"
+                for item in bom.get("materials", [])
+            ) or "BOM/inventory data is unavailable."
+            return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent / Production Agent",
+                    "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent", "Production Agent"],
+                    "answer": (f"Scenario: {baseline['product_name']} demand {direction}s by {percent:g}%. Baseline next-month forecast: {baseline['forecast']:,.2f} units; "
+                               f"scenario demand: {scenario_quantity:,.2f} units. Fabric/material impact: {material_impact}. "
+                               f"Production-capacity result: {production.get('status', 'unavailable')}. {production.get('message', '')}"),
+                    "result": {"baseline_forecast": baseline, "scenario_quantity": scenario_quantity, "materials": bom, "production": production}}
+        except Exception:
+            return {"intent": intent, "status": "error", "delegated_to": "Forecast Agent / Inventory Agent / Production Agent",
+                    "answer": "I could not complete the demand scenario. Check the forecast, BOM, inventory, and production data connections."}
+
+    if intent == "stockout_risk":
+        try:
+            periods = requested_forecast_periods()
+            forecasts = forecast_all_demand(periods=periods)
+            risks = []
+            for forecast in forecasts:
+                forecast_quantity = sum(point["quantity"] for point in forecast.get("predictions", [])) or forecast["forecast"]
+                bom = get_product_materials(sku=forecast["sku"], quantity=forecast_quantity)
+                if bom.get("status") != "success":
+                    continue
+                shortages = []
+                for material in bom.get("materials", []):
+                    required = float(material.get("required_quantity") or 0)
+                    available = float(material.get("available_quantity") or 0)
+                    if available < required:
+                        shortages.append({
+                            "material_code": material.get("material_code"),
+                            "material_name": material.get("material_name") or material.get("material_code"),
+                            "required_quantity": required,
+                            "available_quantity": available,
+                            "shortage_quantity": round(required - available, 2),
+                            "unit": material.get("unit", "units"),
+                        })
+                if shortages:
+                    risks.append({
+                        "sku": forecast["sku"], "product_name": forecast["product_name"],
+                        "forecast": forecast_quantity, "shortages": shortages,
+                        "largest_shortage": max(item["shortage_quantity"] for item in shortages),
+                    })
+            risks.sort(key=lambda item: item["largest_shortage"], reverse=True)
+        except Exception:
+            return {"intent": intent, "status": "error", "delegated_to": "Forecast Agent / Inventory Agent",
+                    "answer": "I could not combine the demand forecast with current material stock. Check the forecast, BOM, and inventory data connections."}
+
+        if not risks:
+            return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent",
+                    "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent"],
+                    "answer": f"No material stockout risk was found for the next {periods} month(s) with the available BOM and inventory records.", "results": []}
+        highest = risks[0]
+        materials = "; ".join(
+            f"{item['material_name']}: short {item['shortage_quantity']:,.2f} {item['unit']}"
+            for item in highest["shortages"]
+        )
+        return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent",
+                "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent"],
+                "answer": (f"{highest['product_name']} ({highest['sku']}) has the highest stockout risk over the next {periods} month(s). "
+                           f"Its cumulative forecast is {highest['forecast']:,.2f} units, and its BOM exceeds current stock for: {materials}."),
+                "results": risks}
+
+    if intent == "forecast_material_reorder":
+        try:
+            periods = requested_forecast_periods()
+            material_totals = {}
+            for forecast in forecast_all_demand(periods=periods):
+                quantity = sum(point["quantity"] for point in forecast.get("predictions", [])) or forecast["forecast"]
+                bom = get_product_materials(sku=forecast["sku"], quantity=quantity)
+                if bom.get("status") != "success":
+                    continue
+                for material in bom.get("materials", []):
+                    code = material.get("material_code")
+                    if not code:
+                        continue
+                    item = material_totals.setdefault(code, {"material_code": code, "material_name": material.get("material_name") or code,
+                                                            "required_quantity": 0, "available_quantity": float(material.get("available_quantity") or 0),
+                                                            "unit": material.get("unit", "units")})
+                    item["required_quantity"] += float(material.get("required_quantity") or 0)
+            reorder = [{**item, "shortage_quantity": round(item["required_quantity"] - item["available_quantity"], 2)}
+                       for item in material_totals.values() if item["required_quantity"] > item["available_quantity"]]
+            reorder.sort(key=lambda item: item["shortage_quantity"], reverse=True)
+        except Exception:
+            return {"intent": intent, "status": "error", "delegated_to": "Forecast Agent / Inventory Agent",
+                    "answer": "I could not calculate forecast-based material reorders. Check the forecast, BOM, and inventory data connections."}
+        if not reorder:
+            return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent",
+                    "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent"],
+                    "answer": f"No materials need reordering to support the next {periods} month(s) of forecasted demand.", "results": []}
+        details = "; ".join(f"{item['material_name']} ({item['material_code']}): reorder {item['shortage_quantity']:,.2f} {item['unit']}" for item in reorder)
+        return {"intent": intent, "status": "success", "delegated_to": "Forecast Agent / Inventory Agent",
+                "workflow": ["Operations Agent", "Forecast Agent", "Inventory Agent"],
+                "answer": f"Materials to reorder for the next {periods} month(s) of forecasted demand: {details}.", "results": reorder}
 
 
     # ========================================================
@@ -1732,8 +1899,25 @@ def _execute_specialist_request(user_request: str):
             except Exception:
                 return {"intent": intent, "status": "error", "answer": "Unable to load actual demand or saved forecasts. Check the database connection and try again."}
             completed = sum(row['status'] == 'success' for row in comparisons)
+            answer = (f"Last completed calendar month (UTC): comparison available for {completed} of {len(comparisons)} products. "
+                      "Saved forecasts are used first; otherwise, labeled historical backtests use only earlier demand. "
+                      "Unavailable values are shown as N/A.")
+            unavailable = [row for row in comparisons if row['status'] != 'success']
+            if unavailable:
+                reasons = "; ".join(
+                    f"{row.get('product_name', row['sku'])} ({row['sku']}): {row.get('note', 'comparison data is unavailable')}"
+                    for row in unavailable
+                )
+                answer += f" Not compared ({len(unavailable)}): {reasons}"
+            if re.search(r'\b(least|lowest|worst)\b.*\b(accurate|accuracy|forecast)\b', user_request, re.IGNORECASE):
+                comparable = [row for row in comparisons if row['status'] == 'success' and row.get('percentage_error') is not None]
+                if comparable:
+                    least_accurate = max(comparable, key=lambda row: row['percentage_error'])
+                    answer += (f" Least accurate: {least_accurate.get('product_name', least_accurate['sku'])} "
+                               f"({least_accurate['sku']}) with {least_accurate['percentage_error']:.2f}% absolute error. "
+                               f"Why: {least_accurate['note']}")
             return {"intent": intent, "status": "success" if completed and completed == len(comparisons) else "partial",
-                    "delegated_to": "Forecast Agent", "answer": f"Last completed calendar month (UTC): comparison available for {completed} of {len(comparisons)} products. Saved forecasts are used first; otherwise, labeled historical backtests use only earlier demand. Unavailable values are shown as N/A.",
+                    "delegated_to": "Forecast Agent", "answer": answer,
                     "comparisons": comparisons}
 
         if selection["status"] == "all":
@@ -1754,6 +1938,53 @@ def _execute_specialist_request(user_request: str):
             increasing = sum(item["trend"] == "Increasing" for item in forecasts)
             decreasing = sum(item["trend"] == "Decreasing" for item in forecasts)
             stable = sum(item["trend"] == "Stable" for item in forecasts)
+
+            if selection.get("mode") == "growth_ranking":
+                def projected_growth(item):
+                    points = item.get("predictions") or []
+                    return points[-1]["quantity"] - points[0]["quantity"] if len(points) > 1 else item.get("trend_per_period", 0)
+
+                ranked = sorted(forecasts, key=projected_growth, reverse=True)
+                leaders = ranked[:min(3, len(ranked))]
+                ranking_text = "; ".join(
+                    f"{item['product_name']} ({item['sku']}): {projected_growth(item):+,.2f} units "
+                    f"from the first to the last forecast month"
+                    for item in leaders
+                )
+                return {
+                    "agent": "Operations Agent", "delegated_to": "Forecast Agent", "intent": intent,
+                    "status": "success", "workflow": ["Operations Agent", "Forecast Agent"],
+                    "answer": (
+                        f"Highest forecasted demand growth over the next {selection.get('periods', 1)} month(s): "
+                        f"{ranking_text}. Growth is ranked by the change between the first and last forecast month."
+                    ),
+                    "summary": {"products_forecasted": len(forecasts), "ranking_basis": "change from first to last forecast month"},
+                    "results": ranked,
+                }
+
+            if selection.get("mode") == "demand_ranking":
+                def total_predicted_demand(item):
+                    points = item.get("predictions") or []
+                    return sum(point["quantity"] for point in points) if points else item["forecast"]
+
+                ranked = sorted(forecasts, key=total_predicted_demand, reverse=True)
+                horizon = selection.get("periods", 1)
+                ranking = selection.get("ranking", "highest")
+                highest = ranked[0]
+                lowest = ranked[-1]
+                highest_text = f"Highest: {highest['product_name']} ({highest['sku']}) at {total_predicted_demand(highest):,.2f} predicted units"
+                lowest_text = f"Lowest: {lowest['product_name']} ({lowest['sku']}) at {total_predicted_demand(lowest):,.2f} predicted units"
+                answer_parts = [highest_text] if ranking == "highest" else [lowest_text] if ranking == "lowest" else [highest_text, lowest_text]
+                return {
+                    "agent": "Operations Agent", "delegated_to": "Forecast Agent", "intent": intent,
+                    "status": "success", "workflow": ["Operations Agent", "Forecast Agent"],
+                    "answer": (
+                        f"Demand ranking for the next {horizon} month(s), using total predicted demand over that period: "
+                        + "; ".join(answer_parts) + "."
+                    ),
+                    "summary": {"products_forecasted": len(forecasts), "ranking_basis": "total predicted demand over forecast horizon"},
+                    "results": ranked,
+                }
 
             return {
                 "agent": "Operations Agent",
@@ -1797,6 +2028,37 @@ def _execute_specialist_request(user_request: str):
             if selection.get("periods", 1) > 1:
                 monthly = "; ".join(f"{point['date']}: {point['quantity']:,.2f} units" for point in forecast['predictions'])
                 final_answer += f" Requested {selection['periods']}-month outlook: {monthly}. Periods start after the latest recorded demand month."
+            if re.search(r'\b(explain|explanation|trend|confidence|driver|drivers|why|reason|assumption|accuracy)\b', user_request, re.IGNORECASE):
+                accuracy_value = accuracy.get("accuracy_percent")
+                history_points = forecast["history_points"]
+                if accuracy_value is not None and accuracy_value >= 85 and history_points >= 12:
+                    confidence = "high"
+                elif accuracy_value is not None and accuracy_value >= 70 and history_points >= 6:
+                    confidence = "moderate"
+                else:
+                    confidence = "limited"
+                accuracy_detail = (
+                    f"{accuracy_value:.2f}% rolling backtest accuracy across "
+                    f"{accuracy.get('test_points', 0)} prior comparison month(s)"
+                    if accuracy_value is not None else
+                    "no usable rolling backtest accuracy"
+                )
+                level = forecast.get("model_components", {}).get("level")
+                if level is None:
+                    level = forecast.get("average_historical_demand", forecast["forecast"])
+                final_answer += (
+                    f" Explanation — Trend: the model estimates a {forecast['trend'].lower()} path because "
+                    f"the fitted monthly slope is {forecast['trend_per_period']:+,.2f} units. "
+                    f"Confidence: {confidence}, based on {accuracy_detail} and {history_points} monthly history record(s); "
+                    f"this is an evidence rating, not a guarantee. "
+                    f"Key drivers: Holt's model uses the recent demand level ({level:,.2f} units) and the estimated "
+                    f"monthly trend; it cannot prove external causes such as promotions, seasonality, or customer changes "
+                    f"unless supporting business data is available."
+                )
+                passages = forecast.get("market_context") or []
+                if passages:
+                    best = passages[0]
+                    final_answer += f" Supporting business context: {best.get('note', '')} ({best.get('citation', 'source unavailable')})."
         else:
             final_answer = forecast["message"]
 
@@ -2354,7 +2616,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                     requirement_id=requirement_id,
                     qty=qty,
                     total_value=qty * unit_cost,
-                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                    compliance_keywords=[],
                     destination="Colombo, LK",
                     po_details={
                         "material_code": item.get("material_code"),
@@ -2377,7 +2639,7 @@ def _node_low_stock_supply_chain(state: OperationsState) -> OperationsState:
                 supplier = asyncio.run(run_sourcing_agent(
                     material_type=material_type,
                     requirement_id=requirement_id,
-                    compliance_keywords=["Organic Cotton", "Child-Labor Free"],
+                    compliance_keywords=[],
                 ))
                 supply_chain_results.append({
                     "material": item,
@@ -2429,7 +2691,10 @@ def _node_synthesize_low_stock_procurement(state: OperationsState) -> Operations
         result for result in procurement
         if result.get("supplier") or (result.get("run") or {}).get("supplier")
     ]
-    failed = [result for result in procurement if result.get("error")]
+    failed = [
+        result for result in procurement
+        if result.get("error") or (result.get("run") or {}).get("status") == "failed"
+    ]
 
     if mode == "order":
         drafted = [
@@ -2467,13 +2732,20 @@ def _node_synthesize_low_stock_procurement(state: OperationsState) -> Operations
     if failed:
         answer += f" {len(failed)} item(s) need manual review because supplier lookup failed."
 
+    if failed and len(failed) == len(procurement):
+        response_status = "failed"
+    elif failed:
+        response_status = "partial_success"
+    else:
+        response_status = "success"
+
     response = {
         "agent": "Operations Agent",
         "task": "Low Stock Supply Chain Coordination",
         "delegated_to": "Supply Chain Agent",
         "llm_used": client is not None,
         "intent": "low_stock_procurement",
-        "status": "success",
+        "status": response_status,
         "workflow": ["Operations Agent", "Inventory Agent", "Supply Chain Agent"],
         "answer": answer,
         "results": inventory,

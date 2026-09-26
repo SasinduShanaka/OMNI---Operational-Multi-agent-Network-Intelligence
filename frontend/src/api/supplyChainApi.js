@@ -175,6 +175,13 @@ export const supplyChainApi = {
     return response.json()
   },
 
+  // Get all available carriers
+  getCarriers: async () => {
+    const response = await apiFetch(`${API_BASE_URL}/carriers`)
+    if (!response.ok) throw new Error('Failed to fetch carriers')
+    return response.json()
+  },
+
   // Track a shipment dynamically using LangChain
   trackShipment: async (shipmentId) => {
     const response = await apiFetch(`${API_BASE_URL}/shipments/${shipmentId}/track`)

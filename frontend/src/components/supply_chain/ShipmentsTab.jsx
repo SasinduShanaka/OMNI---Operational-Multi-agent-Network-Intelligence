@@ -130,6 +130,13 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [trackingShipment, setTrackingShipment] = useState(null)
   const [actionLoading, setActionLoading] = useState(null)
+  const [carriers, setCarriers] = useState([])
+
+  useEffect(() => {
+    supplyChainApi.getCarriers()
+      .then(setCarriers)
+      .catch(err => console.error('Failed to load carriers:', err))
+  }, [])
 
   const handleStatusChange = async (shipmentId, newStatus) => {
     setActionLoading(shipmentId)
@@ -203,6 +210,37 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
         </div>
       </div>
 
+      {/* Available Carriers UI */}
+      {carriers.length > 0 && (
+        <div className="mb-6 bg-white border border-gray-200 rounded-xl shadow-sm p-5">
+          <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+            Available Shipping Methods (TMS Market Rates)
+          </h3>
+          <div className="grid grid-cols-3 gap-4">
+            {['sea', 'air', 'road'].map(mode => {
+              const modeCarriers = carriers.filter(c => c.mode === mode)
+              if (!modeCarriers.length) return null
+              return (
+                <div key={mode} className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                  <div className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                    <ModeIcon mode={mode} /> {mode} FREIGHT
+                  </div>
+                  <div className="space-y-2">
+                    {modeCarriers.map(c => (
+                      <div key={c.carrier_id} className="flex justify-between items-center text-sm">
+                        <span className="font-medium text-gray-700">{c.name}</span>
+                        <span className="text-green-600 font-semibold text-xs">LKR {c.rate_per_unit}/u</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <table className="w-full text-[13px]">
@@ -226,7 +264,18 @@ export default function ShipmentsTab({ shipments, onUpdate }) {
                 <td className="px-5 py-4 font-mono font-semibold text-gray-700">#{s.shipment_id}</td>
                 <td className="px-5 py-4"><ModeIcon mode={s.mode} /></td>
                 <td className="px-5 py-4">
-                  <div className="font-medium text-gray-800">{s.carrier_name}</div>
+                  <div className="font-medium text-gray-800 flex items-center gap-2">
+                    {s.carrier_name}
+                    {(() => {
+                      if (!carriers.length) return null;
+                      const modeCarriers = carriers.filter(c => c.mode === s.mode);
+                      const minRate = Math.min(...modeCarriers.map(c => c.rate_per_unit));
+                      if (minRate > 0 && s.rate_per_unit === minRate) {
+                        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 border border-green-200" title="Agent selected the most optimal lowest rate">Optimal</span>
+                      }
+                      return null;
+                    })()}
+                  </div>
                   <div className="text-xs text-gray-400">LKR {s.rate_per_unit}/unit</div>
                 </td>
                 <td className="px-5 py-4 text-gray-600">

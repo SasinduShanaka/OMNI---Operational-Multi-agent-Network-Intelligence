@@ -131,71 +131,60 @@ You are a Freight Booking Agent.
 1. Determine the mode: If lead_time_days ({lead_time_days}) <= {AIR_THRESHOLD_DAYS}, use 'air', otherwise use 'sea'.
 2. Call get_carriers_tool to find available carriers for that mode.
 3. Call book_shipment_tool using the carrier_id of the CHEAPEST carrier from step 2, along with po_id={po_id}, origin="{origin}", destination="{destination}", and eta="{eta}".
+4. DO NOT explain yourself. Once you have called book_shipment_tool and received success, output the word "DONE".
 """
 
     messages = [HumanMessage(content=prompt)]
     
-    # Step 1: LLM determines mode and asks for carriers
-    msg = await llm_with_tools.ainvoke(messages)
-    messages.append(msg)
-    
-    if msg.tool_calls and msg.tool_calls[0]['name'] == 'get_carriers_tool':
-        tool_call = msg.tool_calls[0]
-        print(f"  [Agent 3] LLM getting carriers: {tool_call['args']}")
-        tool_result = await get_carriers_tool.ainvoke(tool_call['args'])
+    from langchain_core.messages import ToolMessage
+    max_steps = 5
+    for step in range(max_steps):
+        msg = await llm_with_tools.ainvoke(messages)
+        messages.append(msg)
         
-        # Add tool result
-        from langchain_core.messages import ToolMessage
-        messages.append(ToolMessage(content=tool_result, tool_call_id=tool_call['id']))
-        
-        # Step 2: LLM picks cheapest and books
-        msg2 = await llm_with_tools.ainvoke(messages)
-        messages.append(msg2)
-        
-        if msg2.tool_calls and msg2.tool_calls[0]['name'] == 'book_shipment_tool':
-            book_call = msg2.tool_calls[0]
-            print(f"  [Agent 3] LLM booking shipment: {book_call['args']}")
-            book_result = await book_shipment_tool.ainvoke(book_call['args'])
-            booking = json.loads(book_result)
+        if not msg.tool_calls:
+            # Check if booking is in the message history or if we are done
+            break
             
-            if "error" in booking:
-                print(f"  [Agent 3] Error booking shipment: {booking['error']}")
-                return None
-            
-            shipment_id = booking["shipment_id"]
-            mode = book_call['args']['mode']
-            chosen_carrier_id = book_call['args']['carrier_id']
+        for tool_call in msg.tool_calls:
+            print(f"  [Agent 3] LLM calling tool: {tool_call['name']} with args: {tool_call['args']}")
+            if tool_call['name'] == 'get_carriers_tool':
+                tool_result = await get_carriers_tool.ainvoke(tool_call['args'])
+            elif tool_call['name'] == 'book_shipment_tool':
+                tool_result = await book_shipment_tool.ainvoke(tool_call['args'])
+                booking = json.loads(tool_result)
+                if "error" in booking:
+                    print(f"  [Agent 3] Error booking shipment: {booking['error']}")
+                    return None
+                
+                shipment_id = booking["shipment_id"]
+                mode = tool_call['args'].get('mode', 'air')
+                chosen_carrier_id = tool_call['args'].get('carrier_id')
+                
+                # We can return immediately on successful booking
+                print(f"\n  [Agent 3] Shipment #{shipment_id} booked.")
+                print(f"  Mode    : {mode}")
+                print(f"  Carrier ID : {chosen_carrier_id}")
+                print(f"  Route   : {origin} -> {destination}")
+                print(f"  ETA     : {eta}")
 
-            # Look up the real carrier name from the carriers list returned earlier
-            try:
-                carriers_data = json.loads(tool_result)
-                carrier_name = next(
-                    (c["name"] for c in carriers_data if c.get("carrier_id") == chosen_carrier_id),
-                    "Unknown Carrier"
-                )
-            except Exception:
-                carrier_name = "Unknown Carrier"
-
-            print(f"\n  [Agent 3] Shipment #{shipment_id} booked.")
-            print(f"  Mode    : {mode}")
-            print(f"  Carrier : {carrier_name}")
-            print(f"  Route   : {origin} -> {destination}")
-            print(f"  ETA     : {eta}")
-
-            return {
-                "shipment_id":   shipment_id,
-                "carrier_name":  carrier_name,
-                "carrier_id":    chosen_carrier_id,
-                "mode":          mode,
-                "origin":        origin,
-                "destination":   destination,
-                "eta":           eta,
-                "status":        "booked",
-            }
+                return {
+                    "shipment_id":   shipment_id,
+                    "carrier_name":  f"Carrier #{chosen_carrier_id}",
+                    "carrier_id":    chosen_carrier_id,
+                    "mode":          mode,
+                    "origin":        origin,
+                    "destination":   destination,
+                    "eta":           eta,
+                    "status":        "booked",
+                }
+            else:
+                tool_result = "Unknown tool."
+                
+            messages.append(ToolMessage(content=tool_result, tool_call_id=tool_call['id']))
 
     print(f"  [Agent 3] LLM failed to complete booking sequence.")
     return None
-
 
 if __name__ == "__main__":
     result = asyncio.run(

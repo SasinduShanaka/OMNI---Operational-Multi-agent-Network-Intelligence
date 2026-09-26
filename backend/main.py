@@ -666,7 +666,8 @@ def handle_procurement_turn(session_id: str, request: AskRequest):
             
             q_lower = assistant_reply.lower()
             return_status = decision.get("status")
-            if "color" in q_lower or "colour" in q_lower or "shade" in q_lower:
+            # Only trigger the shade selection UI if we are actually asking for a shade and have shades generated
+            if "shade of" in q_lower or ("shade" in q_lower and decision.get("shades")):
                 return_status = "needs_shade_selection"
                 
             return {
@@ -931,7 +932,10 @@ def _process_ask(request: AskRequest):
             record_agent_activity("Contextual low-stock order", result, session_id, "Medium")
             return result
 
-        if session_id and session_id in procurement_sessions and is_low_stock_supply_chain_request(request.message):
+        msg_lower = request.message.lower()
+        is_restart = session_id and session_id in procurement_sessions and procurement_sessions[session_id].get("phase") == "selecting" and any(w in msg_lower for w in ("buy ", "order ", "need ", "want ", "procure "))
+        
+        if session_id and session_id in procurement_sessions and (is_low_stock_supply_chain_request(request.message) or is_restart):
             del procurement_sessions[session_id]
 
         if session_id and session_id in procurement_sessions:
